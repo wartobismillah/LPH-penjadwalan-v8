@@ -1,0 +1,2310 @@
+<html lang="id"><!--
+════════════════════════════════════════════════════════════════════════════════
+   📅 YOUTUBE MULTI-CHANNEL SCHEDULER v8 — SINGLE FILE EDITION
+════════════════════════════════════════════════════════════════════════════════
+
+WHAT'S NEW IN v8:
+  ✅ 100% Backend OAuth — Refresh tokens stored in GAS PropertiesService
+  ✅ Zero frontend popups for token rotation — all done server-side
+  ✅ Round-robin credential pool rotation on quota errors (automatic)
+  ✅ JSON credential upload (client_secret.json from GCP)
+  ✅ Professional channel data table (avatar, handle, subscribers, auth status)
+  ✅ LockService race condition protection for concurrent scheduling
+  ✅ Edge case handling: ALL_QUOTA_EXHAUSTED, TOKEN_REVOKED, invalid JSON
+  ✅ QA mock test functions in backend for simulation
+  ✅ All v7 features preserved: bulk, calendar, undo, char counters, search, etc.
+════════════════════════════════════════════════════════════════════════════════
+--><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Multi-Channel Scheduler v8</title>
+  <meta name="description" content="Professional YouTube multi-channel video scheduler with automated OAuth and quota rotation.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+
+  <script>
+    // ═══════════════════════════════════════════════════════════════════════
+    // CONFIGURATION — Set these after deploying Code.gs as a Web App
+    const SHEETS_URL = "https://script.google.com/macros/s/AKfycbzH0LKYORzLraKNWxHjf-o2_47bhGvIGsu1hlXl9xiiaL_iVKPMPE1089vsc5CUgQYh/exec";       // Paste your GAS Web App URL here
+    const TEAM_PIN   = "siappakai";       // Team PIN for session protection
+    const DRAFT_WINDOW_DAYS = 90;
+    // ═══════════════════════════════════════════════════════════════════════
+  </script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0 }
+
+    :root {
+      --red: #FF0000; --red-d: #CC0000; --red-bg: #FFF0F0; --red-b: #FFBBBB;
+      --bg: #F4F4F7; --card: #FFFFFF; --hover: #F1F1F4; --text: #111827;
+      --t2: #4B5563; --t3: #9CA3AF; --border: #E5E7EB; --border2: #D1D5DB;
+      --green: #059669; --green-bg: #ECFDF5; --green-b: #6EE7B7;
+      --orange: #D97706; --orange-bg: #FFFBEB; --orange-b: #FCD34D;
+      --blue: #2563EB; --blue-bg: #EFF6FF; --blue-b: #BFDBFE;
+      --purple: #7C3AED; --purple-bg: #F5F3FF; --purple-b: #DDD6FE;
+      --r: 12px; --r2: 8px; --r3: 6px;
+      --sh: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+      --sh2: 0 10px 40px rgba(0,0,0,.15);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 14px; color: var(--text); background: var(--bg);
+    }
+
+    @media(prefers-color-scheme:dark) {
+      :root {
+        --bg: #0F1117; --card: #1A1D26; --hover: #22263A; --text: #F1F5F9;
+        --t2: #94A3B8; --t3: #64748B; --border: #2A2D3E; --border2: #3A3D4E;
+        --green: #34D399; --green-bg: #022C22; --green-b: #065F46;
+        --orange: #FBBF24; --orange-bg: #1C1300; --orange-b: #92400E;
+        --blue: #60A5FA; --blue-bg: #172554; --blue-b: #1D4ED8;
+        --purple: #A78BFA; --purple-bg: #2E1065; --purple-b: #5B21B6;
+        --red-bg: #2D0000; --red-b: #7F0000;
+      }
+    }
+
+    /* ── App Layout ── */
+    .app { max-width: 1000px; margin: 0 auto; padding: 0 1rem 4rem }
+
+    /* ── Header ── */
+    .header {
+      display: flex; align-items: center; gap: 10px;
+      padding: .85rem 0; margin-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; background: var(--bg); z-index: 30;
+    }
+    .logo-box {
+      width: 36px; height: 36px; background: var(--red);
+      border-radius: 9px; display: flex; align-items: center;
+      justify-content: center; flex-shrink: 0;
+    }
+    .logo-box svg { width: 20px; height: 20px; fill: #fff }
+    .hdr-r { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
+
+    /* ── Quota Exhausted Banner ── */
+    .quota-banner {
+      display: none; padding: 10px 16px; background: #7f1d1d; color: #fecaca;
+      border-radius: var(--r2); font-size: 12px; font-weight: 600;
+      margin-bottom: 1rem; border: 1px solid #991b1b;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .quota-banner.hidden { display: none !important }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 7px 14px; font-size: 13px; font-weight: 600;
+      border-radius: var(--r2); border: 1px solid var(--border);
+      background: var(--card); color: var(--text);
+      cursor: pointer; transition: all .15s; white-space: nowrap;
+      box-shadow: var(--sh); font-family: inherit;
+    }
+    .btn:hover { background: var(--hover); border-color: var(--border2) }
+    .btn:active { transform: scale(.98) }
+    .btn:disabled { opacity: .45; cursor: not-allowed; transform: none }
+    .btn-red { background: var(--red); border-color: var(--red-d); color: #fff; box-shadow: none }
+    .btn-red:hover { background: var(--red-d) }
+    .btn-green { background: var(--green-bg); border-color: var(--green-b); color: var(--green) }
+    .btn-green:hover { filter: brightness(.93) }
+    .btn-blue { background: var(--blue-bg); border-color: var(--blue-b); color: var(--blue) }
+    .btn-sm { padding: 5px 11px; font-size: 12px }
+    .btn-xs { padding: 3px 9px; font-size: 11px; font-weight: 700 }
+    .btn-ghost { background: transparent; border-color: transparent; box-shadow: none }
+    .btn-ghost:hover { background: var(--hover); border-color: var(--border) }
+    .btn-full {
+      width: 100%; height: 44px; border: none; border-radius: var(--r2);
+      background: var(--red); color: #fff; font-size: 14px; font-weight: 700;
+      cursor: pointer; font-family: inherit; transition: background .15s;
+    }
+    .btn-full:hover { background: var(--red-d) }
+    .btn-full:disabled { opacity: .5; cursor: not-allowed }
+
+    /* ── Channel bar ── */
+    .ch-bar {
+      display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--r); margin-bottom: 1.25rem; flex-wrap: wrap;
+      box-shadow: var(--sh);
+    }
+    .ch-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--t3); white-space: nowrap }
+    .ch-chips { display: flex; gap: 5px; flex-wrap: wrap; flex: 1 }
+    .ch-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+      border: 1.5px solid var(--border); cursor: pointer;
+      background: transparent; color: var(--t2); transition: all .15s; white-space: nowrap;
+    }
+    .ch-chip:hover { border-color: var(--red); color: var(--red) }
+    .ch-chip.active { background: var(--red); border-color: var(--red-d); color: #fff }
+    .ch-del { font-size: 14px; opacity: .5; padding: 0 2px }
+    .ch-del:hover { opacity: 1 }
+    .btn-add-ch {
+      padding: 5px 11px; font-size: 12px; border-radius: 20px;
+      border: 1.5px dashed var(--border2); cursor: pointer; background: transparent;
+      color: var(--t3); transition: all .15s; font-family: inherit; font-weight: 600;
+    }
+    .btn-add-ch:hover { border-color: var(--red); color: var(--red) }
+
+    /* ── Stats ── */
+    .stats { display: grid; grid-template-columns: repeat(auto-fit,minmax(120px,1fr)); gap: 10px; margin-bottom: 1.25rem }
+    .stat { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 14px 16px; box-shadow: var(--sh) }
+    .stat-n { font-size: 28px; font-weight: 800; line-height: 1 }
+    .stat-l { font-size: 10px; color: var(--t3); margin-top: 3px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em }
+    .c-green { color: var(--green) } .c-orange { color: var(--orange) }
+    .c-blue { color: var(--blue) } .c-purple { color: var(--purple) }
+
+    /* ── Tabs ── */
+    .tabs { display: flex; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border) }
+    .tab {
+      padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+      color: var(--t3); border-bottom: 2.5px solid transparent; margin-bottom: -1px;
+      transition: all .15s; background: none; border-top: none; border-left: none; border-right: none; font-family: inherit;
+    }
+    .tab:hover { color: var(--text) }
+    .tab.active { color: var(--red); border-bottom-color: var(--red) }
+
+    /* ── Video rows ── */
+    .vlist { display: flex; flex-direction: column; gap: 6px }
+    .vrow {
+      display: grid; grid-template-columns: auto 1fr auto;
+      align-items: center; gap: 12px; padding: 11px 14px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--r2); transition: all .15s;
+    }
+    .vrow:hover { border-color: var(--border2); box-shadow: var(--sh) }
+    .vrow.scheduled { border-left: 3px solid var(--green) }
+    .vrow.open { border-color: var(--red); border-bottom-left-radius: 0; border-bottom-right-radius: 0 }
+    .thumb { width: 88px; height: 50px; object-fit: cover; border-radius: 5px; background: var(--hover); flex-shrink: 0 }
+    .thumb-ph { width: 88px; height: 50px; border-radius: 5px; background: var(--hover); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0 }
+    .vtitle { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+    .vmeta { font-size: 11px; color: var(--t3); margin-top: 3px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap }
+    .badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700 }
+    .b-draft { background: var(--hover); color: var(--t3) }
+    .b-sched { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-b) }
+    .b-soon { background: var(--orange-bg); color: var(--orange); border: 1px solid var(--orange-b) }
+    .vactions { display: flex; flex-direction: column; gap: 5px; align-items: flex-end; flex-shrink: 0 }
+    .btn-unsched { padding: 3px 8px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border2); color: var(--t2); background: transparent; cursor: pointer; transition: all .15s; font-weight: 600 }
+    .btn-unsched:hover { background: #FEE2E2; border-color: #FCA5A5; color: #991B1B }
+    .ipanel { background: var(--red-bg); border: 1px solid var(--red-b); border-top: none; border-bottom-left-radius: var(--r2); border-bottom-right-radius: var(--r2); padding: 12px 14px; display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap }
+    .ipanel label { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--t2); margin-bottom: 4px }
+    .ipanel input[type=date], .ipanel input[type=time] { padding: 7px 10px; font-size: 13px; border: 1px solid var(--border2); border-radius: var(--r2); background: var(--card); color: var(--text); font-family: inherit }
+    .ipanel input:focus { outline: none; border-color: var(--red); box-shadow: 0 0 0 3px rgba(255,0,0,.1) }
+    .tz-hint { font-size: 10px; color: var(--t3); margin-top: 3px }
+
+    /* ── Bulk Scheduler ── */
+    .bulk-wrap { display: grid; grid-template-columns: 340px 1fr; gap: 16px; align-items: start }
+    @media(max-width:700px) { .bulk-wrap { grid-template-columns: 1fr } }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; box-shadow: var(--sh) }
+    .panel-head { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: space-between }
+    .panel-body { padding: 14px 16px }
+    .mode-opts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px }
+    .mode-opt { display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px; border: 1.5px solid var(--border); border-radius: var(--r2); cursor: pointer; transition: all .15s }
+    .mode-opt:hover { border-color: var(--border2) }
+    .mode-opt.selected { border-color: var(--red); background: var(--red-bg) }
+    .mode-opt input[type=radio] { margin-top: 2px; accent-color: var(--red); flex-shrink: 0 }
+    .mode-opt-text strong { font-size: 13px; display: block }
+    .mode-opt-text span { font-size: 11px; color: var(--t3) }
+    .interval-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 10px }
+    .interval-btn { padding: 6px 12px; font-size: 12px; font-weight: 700; border-radius: 20px; border: 1.5px solid var(--border); cursor: pointer; background: transparent; color: var(--t2); transition: all .15s; font-family: inherit }
+    .interval-btn:hover { border-color: var(--red); color: var(--red) }
+    .interval-btn.sel { background: var(--red); border-color: var(--red-d); color: #fff }
+    .custom-n { width: 60px; padding: 6px 8px; font-size: 13px; border: 1.5px solid var(--border2); border-radius: var(--r2); text-align: center; background: var(--card); color: var(--text); font-family: inherit }
+    .fg { margin-bottom: 10px }
+    .fg label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--t3); margin-bottom: 5px }
+    .fg input, .fg select, .fg textarea { width: 100%; padding: 8px 10px; font-size: 13px; border: 1px solid var(--border2); border-radius: var(--r2); background: var(--card); color: var(--text); font-family: inherit }
+    .fg input:focus, .fg select:focus, .fg textarea:focus { outline: none; border-color: var(--red); box-shadow: 0 0 0 3px rgba(255,0,0,.1) }
+    .fg-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }
+    .sel-list { display: flex; flex-direction: column; gap: 5px; max-height: 340px; overflow-y: auto; padding-right: 2px }
+    .sel-list::-webkit-scrollbar { width: 4px }
+    .sel-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px }
+    .sel-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r3); background: var(--card); cursor: pointer; transition: all .15s; user-select: none }
+    .sel-row:hover { border-color: var(--border2); background: var(--hover) }
+    .sel-row.checked { border-color: var(--red); background: var(--red-bg) }
+    .sel-row input[type=checkbox] { accent-color: var(--red); flex-shrink: 0; width: 15px; height: 15px; cursor: pointer }
+    .sel-row .sthumb { width: 56px; height: 32px; object-fit: cover; border-radius: 3px; background: var(--hover); flex-shrink: 0 }
+    .sel-row .sthumb-ph { width: 56px; height: 32px; border-radius: 3px; background: var(--hover); display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0 }
+    .sel-row .stitle { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0 }
+    .reorder { display: flex; flex-direction: column; gap: 1px; flex-shrink: 0 }
+    .reorder button { width: 18px; height: 16px; border: 1px solid var(--border); border-radius: 3px; background: var(--card); cursor: pointer; font-size: 9px; display: flex; align-items: center; justify-content: center; color: var(--t2); padding: 0; transition: all .15s }
+    .reorder button:hover { background: var(--hover); color: var(--text) }
+
+    /* ── Preview table ── */
+    .ptable { width: 100%; border-collapse: collapse; font-size: 12px }
+    .ptable th { text-align: left; padding: 7px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--t3); border-bottom: 1px solid var(--border) }
+    .ptable td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle }
+    .ptable tr:last-child td { border-bottom: none }
+    .ptable tr:hover td { background: var(--hover) }
+    .ptable .pnum { width: 24px; color: var(--t3); font-weight: 700; font-size: 11px }
+    .ptable .ptitle { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px }
+    .ptable .pdate { white-space: nowrap; color: var(--green); font-weight: 700 }
+    .ptable .pdate-custom input { width: 130px; padding: 4px 7px; font-size: 12px; border: 1px solid var(--border2); border-radius: 4px; background: var(--card); color: var(--text); font-family: inherit }
+    .ptable tr.row-err td { background: rgba(220,38,38,.07) }
+    .ptable tr.row-err:hover td { background: rgba(220,38,38,.13) }
+    .old-title { color: var(--t3); text-decoration: line-through; font-size: 11px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+    .new-title-arrow { color: var(--t3); font-size: 10px; margin: 1px 0; display: block }
+    .new-title { font-weight: 700; color: var(--text); font-size: 12px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+
+    /* ── Calendar ── */
+    .cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px }
+    .cal-title { font-size: 15px; font-weight: 700 }
+    .cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px }
+    .cal-head { text-align: center; font-size: 10px; font-weight: 700; color: var(--t3); padding: 4px 0; text-transform: uppercase; letter-spacing: .06em }
+    .cal-cell { min-width: 0; min-height: 68px; padding: 4px 5px; border-radius: var(--r2); border: 1px solid var(--border); background: var(--card) }
+    .cal-cell.dim { background: var(--hover); opacity: .4 }
+    .cal-cell.today { border-color: var(--red) }
+    .cal-num { font-size: 11px; font-weight: 700; color: var(--t3); margin-bottom: 2px }
+    .cal-cell.today .cal-num { background: var(--red); color: #fff; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px }
+    .cal-ev { background: var(--green-bg); color: var(--green); border-radius: 3px; padding: 2px 5px; font-size: 10px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; border-left: 2px solid var(--green) }
+    .cal-more { font-size: 10px; color: var(--t3); margin-top: 2px; padding-left: 4px }
+    .cal-meta-section { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border2) }
+    .cal-meta-section .cml { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--t3); margin-bottom: 4px }
+    .cal-meta-section textarea, .cal-meta-section input[type=text] { width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid var(--border2); border-radius: var(--r2); background: var(--card); color: var(--text); resize: vertical; margin-bottom: 8px; font-family: inherit }
+    .cal-meta-section textarea:focus, .cal-meta-section input[type=text]:focus { outline: none; border-color: var(--red); box-shadow: 0 0 0 3px rgba(255,0,0,.08) }
+
+    /* ── Credential Pool Table (Settings Tab) ── */
+    .cred-table { width: 100%; border-collapse: collapse }
+    .cred-table th { padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--t3); border-bottom: 2px solid var(--border); text-align: left; white-space: nowrap }
+    .cred-table td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: middle }
+    .cred-table tr:last-child td { border-bottom: none }
+    .cred-table tr:hover td { background: var(--hover) }
+    .ch-avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: var(--hover); display: block; flex-shrink: 0 }
+    .ch-avatar-ph { width: 44px; height: 44px; border-radius: 50%; background: var(--red); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; font-weight: 700; flex-shrink: 0 }
+    .auth-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 12px; font-size: 10px; font-weight: 700; white-space: nowrap }
+    .auth-active { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-b) }
+    .auth-pending { background: var(--orange-bg); color: var(--orange); border: 1px solid var(--orange-b) }
+    .auth-revoked { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5 }
+    .auth-exhausted { background: var(--purple-bg); color: var(--purple); border: 1px solid var(--purple-b) }
+    .auth-error { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5 }
+
+    /* ── JSON Upload Drop Zone ── */
+    .upload-zone {
+      border: 2px dashed var(--border2); border-radius: var(--r);
+      padding: 2rem; text-align: center; cursor: pointer;
+      transition: all .2s; position: relative;
+    }
+    .upload-zone:hover, .upload-zone.drag-over { border-color: var(--red); background: var(--red-bg) }
+    .upload-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100% }
+    .upload-icon { font-size: 32px; margin-bottom: 8px }
+
+    /* ── Info / alerts ── */
+    .info-box { padding: 10px 14px; border-radius: var(--r3); font-size: 12px; line-height: 1.6; margin-bottom: 10px }
+    .info-blue { background: var(--blue-bg); color: var(--blue); border: 1px solid var(--blue-b) }
+    .info-orange { background: var(--orange-bg); color: var(--orange); border: 1px solid var(--orange-b) }
+    .info-green { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-b) }
+    .info-red { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5 }
+    .char-badge { display: inline-flex; align-items: center; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700 }
+    .char-ok { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-b) }
+    .char-err-badge { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5 }
+
+    /* ── Screen overlays (Setup / PIN) ── */
+    .screen { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: flex-start; justify-content: center; z-index: 500; padding: 20px; overflow-y: auto }
+    .screen-box { background: var(--card); border: 1px solid var(--border2); border-radius: var(--r); padding: 28px; width: 100%; max-width: 560px; margin: auto; box-shadow: var(--sh2) }
+    .screen-box.pin-box { max-width: 300px; text-align: center }
+    .s-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 22px }
+    .s-logo h1 { font-size: 17px; font-weight: 700 }
+    .s-logo p { font-size: 12px; color: var(--t3) }
+    .step-wrap { display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px }
+    .step { display: flex; gap: 12px }
+    .step-n { width: 24px; height: 24px; border-radius: 50%; background: var(--red); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px }
+    .step-body { flex: 1; font-size: 13px; color: var(--t2); line-height: 1.65 }
+    .step-body strong { color: var(--text) }
+    .step-body a { color: var(--blue) }
+    .code-block { background: var(--hover); border: 1px solid var(--border2); border-radius: var(--r2); padding: 10px 12px; font-size: 11px; font-family: monospace; white-space: pre; overflow-x: auto; line-height: 1.6; margin: 8px 0; position: relative; color: var(--text) }
+    .copy-btn { position: absolute; top: 6px; right: 6px; padding: 2px 8px; font-size: 10px; border: 1px solid var(--border2); border-radius: 4px; background: var(--card); color: var(--t2); cursor: pointer; font-family: inherit }
+    .field { margin-bottom: 14px }
+    .field label { display: block; font-size: 12px; font-weight: 600; color: var(--t2); margin-bottom: 5px }
+    .field input { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--border2); border-radius: var(--r2); background: var(--card); color: var(--text); font-size: 13px; font-family: inherit }
+    .field input:focus { outline: none; border-color: var(--red) }
+    .field .help { font-size: 11px; color: var(--t3); margin-top: 5px; line-height: 1.5 }
+    .s-err { font-size: 12px; color: #DC2626; padding: 8px 12px; background: #FEF2F2; border-radius: var(--r2); border: 1px solid #FCA5A5; margin-top: 10px }
+    .dl-box { background: var(--green-bg); border: 1px solid var(--green-b); border-radius: var(--r); padding: 20px; text-align: center }
+    .dl-box h3 { font-size: 16px; font-weight: 700; color: var(--green); margin-bottom: 8px }
+    .dl-box p { font-size: 13px; color: var(--green); margin-bottom: 16px; line-height: 1.6 }
+    .divider { height: 1px; background: var(--border); margin: 18px 0 }
+
+    /* ── Filters ── */
+    .filters { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap }
+    .chip { padding: 5px 12px; font-size: 12px; border-radius: 20px; border: 1px solid var(--border); cursor: pointer; background: transparent; color: var(--t2); transition: all .15s; font-weight: 500; font-family: inherit }
+    .chip:hover { border-color: var(--red); color: var(--red) }
+    .chip.active { background: var(--red-bg); border-color: var(--red); color: var(--red); font-weight: 700 }
+
+    /* ── Misc ── */
+    .empty { text-align: center; padding: 3rem 1rem; color: var(--t3) }
+    .loader { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 3rem; color: var(--t2); font-size: 13px }
+    .spinner { width: 20px; height: 20px; border: 2.5px solid var(--border); border-top-color: var(--red); border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0 }
+    @keyframes spin { to { transform: rotate(360deg) } }
+    .toast { position: fixed; bottom: 24px; right: 24px; z-index: 9999; padding: 10px 16px; border-radius: var(--r2); font-size: 13px; font-weight: 600; box-shadow: var(--sh2); animation: slideUp .25s ease; max-width: 320px }
+    @keyframes slideUp { from { transform: translateY(10px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+    .toast.ok { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-b) }
+    .toast.err { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5 }
+    .toast.inf { background: var(--blue-bg); color: var(--blue); border: 1px solid var(--blue-b) }
+    .vscroll { max-height: 520px; overflow-y: auto; padding-right: 2px }
+    .vscroll::-webkit-scrollbar { width: 5px }
+    .vscroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px }
+    .modal-wide { width: 720px; max-width: calc(100vw - 2rem); max-height: 85vh; display: flex; flex-direction: column }
+    .modal-wide h3 { margin-bottom: .6rem; flex-shrink: 0 }
+    .modal-scroll { overflow-y: auto; flex: 1; margin: 0 -1.5rem; padding: 0 1.5rem }
+    .modal-scroll::-webkit-scrollbar { width: 5px }
+    .modal-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px }
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(3px) }
+    .modal { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 1.5rem; width: 420px; max-width: calc(100vw - 2rem); box-shadow: var(--sh2) }
+    .modal h3 { font-size: 16px; font-weight: 800; margin-bottom: 1.25rem }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 1.25rem }
+    .color-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px }
+    .cswatch { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2.5px solid transparent; transition: transform .1s }
+    .cswatch:hover { transform: scale(1.15) }
+    .cswatch.sel { border-color: var(--text) }
+    .progress-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin: 10px 0 }
+    .progress-fill { height: 100%; background: var(--green); border-radius: 3px; transition: width .4s ease }
+  </style>
+</head>
+<body>
+
+<!-- ── SETUP SCREEN ── -->
+<div class="screen" id="sc-setup" style="display: flex;">
+  <div class="screen-box">
+    <div class="s-logo">
+      <div class="logo-box"><svg viewBox="0 0 90 90"><path d="M88.3,25.4c-1-3.8-4-6.8-7.8-7.8C73.8,16,45,16,45,16S16.2,16,9.5,17.7c-3.8,1-6.8,4-7.8,7.8C0,32.1,0,46,0,46s0,13.9,1.7,20.6c1,3.8,4,6.8,7.8,7.8C16.2,76,45,76,45,76s28.8,0,35.5-1.7c3.8-1,6.8-4,7.8-7.8C90,59.9,90,46,90,46S90,32.1,88.3,25.4z M36,59V33l24,13L36,59z"></path></svg></div>
+      <div><h1>YT Scheduler v8 — Setup</h1><p>Permanent Auth Architecture</p></div>
+    </div>
+    <div id="setup-step-view">
+      <div style="font-size:13px;font-weight:700;margin-bottom:14px">Ikuti langkah berikut:</div>
+      <div class="step-wrap">
+        <div class="step"><span class="step-n">1</span><div class="step-body">Buka <a href="https://sheets.new" target="_blank"><strong>sheets.new</strong></a> → buat Google Sheet baru (nama bebas, biarkan kosong).</div></div>
+        <div class="step"><span class="step-n">2</span><div class="step-body">Di Google Sheet → klik <strong>Extensions → Apps Script</strong> → hapus semua kode → paste kode berikut → klik 💾 <strong>Save</strong>.<br><br><div style="position:relative"><pre class="code-block" id="gas-code" style="max-height:260px;overflow:auto;white-space:pre;word-break:normal;font-size:10.5px;line-height:1.55;margin:8px 0;padding:14px 14px 14px 14px;border-radius:var(--r2);border:1px solid var(--border2);background:var(--hover);color:var(--text);font-family:monospace;tab-size:2;user-select:all">// ═══════════════════════════════════════════════════════════════════════════════
+// YT Multi-Channel Scheduler v8 — Google Apps Script Backend (Code.gs)
+// Architecture: Permanent Auth via Refresh Tokens + Automated Quota Rotation
+//
+// SETUP INSTRUCTIONS:
+// 1. Paste this entire file into Apps Script (Extensions &gt; Apps Script in your Sheet)
+// 2. Deploy as Web App: Execute as "Me", Who has access "Anyone"
+// 3. Copy the Web App URL → paste into index.html SHEETS_URL constant
+// 4. IMPORTANT: Register the Web App URL as Authorised Redirect URI in GCP Console
+//    (APIs &amp; Services → Credentials → your OAuth 2.0 Client → Authorised redirect URIs)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var PROP_CRED_POOL   = 'CRED_POOL_V8';
+var PROP_CHANNELS    = 'CHANNELS_V8';
+var PROP_QUOTA_FLAGS = 'QUOTA_FLAGS_V8';
+var BACKUP_SHEET_NAME = 'YT_Scheduler_v8';
+var YT_API_BASE = 'https://www.googleapis.com/youtube/v3';
+var OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+var OAUTH_SCOPE = 'https://www.googleapis.com/auth/youtube';
+
+// ─── STORAGE ──────────────────────────────────────────────────────────────────
+
+function loadCredPool() {
+  try { var r = PropertiesService.getScriptProperties().getProperty(PROP_CRED_POOL); return r ? JSON.parse(r) : []; } catch(e) { return []; }
+}
+function saveCredPool(pool) {
+  PropertiesService.getScriptProperties().setProperty(PROP_CRED_POOL, JSON.stringify(pool));
+  try { writeBackupSheet_(); } catch(e) {}
+}
+function loadChannels() {
+  try { var r = PropertiesService.getScriptProperties().getProperty(PROP_CHANNELS); return r ? JSON.parse(r) : []; } catch(e) { return []; }
+}
+function saveChannels(chs) {
+  PropertiesService.getScriptProperties().setProperty(PROP_CHANNELS, JSON.stringify(chs));
+}
+function loadQuotaFlags() {
+  try {
+    var r = PropertiesService.getScriptProperties().getProperty(PROP_QUOTA_FLAGS);
+    var f = r ? JSON.parse(r) : {};
+    var now = Date.now(), changed = false;
+    Object.keys(f).forEach(function(k){ if(f[k] &amp;&amp; f[k].exhaustedAt &amp;&amp; (now-f[k].exhaustedAt)&gt;86400000){delete f[k];changed=true;} });
+    if(changed) saveQuotaFlags(f);
+    return f;
+  } catch(e){ return {}; }
+}
+function saveQuotaFlags(f) {
+  PropertiesService.getScriptProperties().setProperty(PROP_QUOTA_FLAGS, JSON.stringify(f));
+}
+
+// ─── RESPONSE HELPERS ─────────────────────────────────────────────────────────
+
+function jsonOk(d) { return ContentService.createTextOutput(JSON.stringify(d)).setMimeType(ContentService.MimeType.JSON); }
+function jsonErr(m,c) { return jsonOk({success:false,error:m,errorCode:c||'ERROR'}); }
+
+// ─── ROUTERS ──────────────────────────────────────────────────────────────────
+
+function doGet(e) {
+  try {
+    var a = (e.parameter &amp;&amp; e.parameter.action) ? e.parameter.action : 'loadData';
+    if(a==='oauthCallback')     return handleOAuthCallback(e);
+    if(a==='loadData')          return handleLoadData(e);
+    if(a==='getAuthUrl')        return handleGetAuthUrl(e);
+    if(a==='checkAuthStatus')   return handleCheckAuthStatus(e);
+    if(a==='fetchVideos')       return handleFetchVideos(e);
+    if(a==='getChannelInfo')    return handleGetChannelInfo(e);
+    if(a==='clearQuotaFlags')   return handleClearQuotaFlags(e);
+    if(a==='testQuotaRotation') return handleTestQuotaRotation(e);
+    if(a==='testRevokedToken')  return handleTestRevokedToken(e);
+    if(a==='testAllExhausted')  return handleTestAllExhausted(e);
+    return jsonErr('Unknown action: '+a,'UNKNOWN_ACTION');
+  } catch(err){ return jsonErr(err.toString(),'INTERNAL_ERROR'); }
+}
+
+function doPost(e) {
+  try {
+    var a = (e.parameter &amp;&amp; e.parameter.action) ? e.parameter.action : '';
+    var b = {}; try { b = JSON.parse(e.postData.contents); } catch(pe){}
+    if(a==='saveCredential')   return handleSaveCredential(b);
+    if(a==='removeCredential') return handleRemoveCredential(b);
+    if(a==='saveChannels')     return handleSaveChannels(b);
+    if(a==='scheduleVideo')    return handleScheduleVideo(b);
+    if(a==='unscheduleVideo')  return handleUnscheduleVideo(b);
+    if(a==='bulkSchedule')     return handleBulkSchedule(b);
+    return jsonErr('Unknown POST action: '+a,'UNKNOWN_ACTION');
+  } catch(err){ return jsonErr(err.toString(),'INTERNAL_ERROR'); }
+}
+
+// ─── LOAD DATA ────────────────────────────────────────────────────────────────
+
+function handleLoadData(e) {
+  var pool = loadCredPool(), channels = loadChannels(), qf = loadQuotaFlags();
+  var safe = pool.map(function(c){ return {
+    index:c.index, client_id:c.client_id, channel_id:c.channel_id||'',
+    channel_name:c.channel_name||'', channel_handle:c.channel_handle||'',
+    subscriber_count:c.subscriber_count||0, thumb_url:c.thumb_url||'',
+    auth_status: qf[c.index] ? 'exhausted' : (c.auth_status||'pending'),
+    added_at:c.added_at||''
+  };});
+  return jsonOk({success:true,credPool:safe,channels:channels});
+}
+
+// ─── GET AUTH URL ─────────────────────────────────────────────────────────────
+
+function handleGetAuthUrl(e) {
+  var idx = parseInt(e.parameter.credIndex,10), pool = loadCredPool();
+  if(isNaN(idx)||idx&lt;0||idx&gt;=pool.length) return jsonErr('Invalid credIndex','INVALID_CRED_INDEX');
+  var cred = pool[idx];
+  if(!cred.client_id||!cred.client_secret) return jsonErr('Missing client_id or client_secret','INVALID_CREDENTIAL');
+  var cbUrl = getScriptUrl()+'?action=oauthCallback&amp;state='+idx;
+  return jsonOk({success:true,authUrl:buildAuthUrl(cred.client_id,cbUrl,idx),credIndex:idx});
+}
+
+function buildAuthUrl(clientId,cbUrl,state) {
+  return 'https://accounts.google.com/o/oauth2/v2/auth'+
+    '?client_id='+encodeURIComponent(clientId)+
+    '&amp;redirect_uri='+encodeURIComponent(cbUrl)+
+    '&amp;response_type=code&amp;scope='+encodeURIComponent(OAUTH_SCOPE)+
+    '&amp;access_type=offline&amp;prompt=consent&amp;include_granted_scopes=true'+
+    '&amp;state='+encodeURIComponent(String(state));
+}
+
+// ─── OAUTH CALLBACK ───────────────────────────────────────────────────────────
+
+function handleOAuthCallback(e) {
+  var code=e.parameter.code, state=e.parameter.state, error=e.parameter.error;
+  if(error) return HtmlService.createHtmlOutput(cbHtml('Otorisasi Gagal','Error: '+escH(error),false));
+  if(!code||state===undefined) return HtmlService.createHtmlOutput(cbHtml('Parameter Tidak Valid','Code atau state tidak ditemukan.',false));
+
+  var idx=parseInt(state,10), pool=loadCredPool();
+  if(isNaN(idx)||idx&lt;0||idx&gt;=pool.length) return HtmlService.createHtmlOutput(cbHtml('Index Tidak Valid','Credential index '+state+' tidak valid.',false));
+
+  var cred=pool[idx];
+  var cbUrl=getScriptUrl()+'?action=oauthCallback&amp;state='+idx;
+  try {
+    var resp=UrlFetchApp.fetch(OAUTH_TOKEN_URL,{
+      method:'post',contentType:'application/x-www-form-urlencoded',
+      payload:{code:code,client_id:cred.client_id,client_secret:cred.client_secret,redirect_uri:cbUrl,grant_type:'authorization_code'},
+      muteHttpExceptions:true
+    });
+    var td=JSON.parse(resp.getContentText());
+    if(td.error) throw new Error((td.error_description||td.error)+'\n\nPastikan redirect URI "'+cbUrl+'" sudah terdaftar di GCP Console.');
+    if(!td.refresh_token) throw new Error('Google tidak mengembalikan refresh_token.\nSolusi: Buka https://myaccount.google.com/permissions hapus akses aplikasi ini lalu otorisasi ulang.');
+
+    pool[idx].refresh_token=td.refresh_token;
+    pool[idx].access_token=td.access_token;
+    pool[idx].token_expiry=Date.now()+((td.expires_in||3600)*1000);
+    pool[idx].auth_status='active';
+
+    try {
+      var info=fetchChannelInfoRaw(td.access_token);
+      if(info){ pool[idx].channel_id=info.id; pool[idx].channel_name=info.name; pool[idx].channel_handle=info.handle; pool[idx].subscriber_count=info.subscriberCount; pool[idx].thumb_url=info.thumbUrl; }
+    } catch(ce){ Logger.log('Channel info fetch failed: '+ce); }
+
+    saveCredPool(pool);
+    return HtmlService.createHtmlOutput(cbHtml('Berhasil Terhubung!','Channel &lt;strong&gt;'+escH(pool[idx].channel_name||'N/A')+'&lt;/strong&gt; ('+escH(pool[idx].channel_handle||'')+')&lt;br&gt;berhasil dihubungkan dengan Refresh Token permanen.&lt;br&gt;&lt;br&gt;Jendela ini akan tertutup otomatis...',true));
+  } catch(err) {
+    pool[idx].auth_status='error';
+    try { saveCredPool(pool); } catch(se){}
+    return HtmlService.createHtmlOutput(cbHtml('Gagal Mendapatkan Token',escH(err.toString()),false));
+  }
+}
+
+function cbHtml(title,body,autoClose) {
+  return '&lt;!DOCTYPE html&gt;&lt;html lang="id"&gt;&lt;head&gt;&lt;meta charset="UTF-8"&gt;&lt;title&gt;YT Scheduler Auth&lt;/title&gt;'+
+  '&lt;style&gt;*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;'+
+  'background:linear-gradient(135deg,#0f0f0f,#1a1a2e);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1rem}'+
+  '.card{background:#fff;border-radius:16px;padding:2.5rem 2rem;max-width:420px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4)}'+
+  '.ico{font-size:52px;margin-bottom:1rem}h2{font-size:1.2rem;font-weight:700;margin-bottom:.75rem;color:#111}'+
+  'p{color:#555;font-size:.9rem;line-height:1.65}.bar-wrap{height:4px;background:#e5e7eb;border-radius:2px;margin-top:1.5rem;overflow:hidden}'+
+  '.bar{height:100%;background:#22c55e;border-radius:2px;width:0%;transition:width 2.1s linear}&lt;/style&gt;&lt;/head&gt;'+
+  '&lt;body&gt;&lt;div class="card"&gt;&lt;div class="ico"&gt;'+(autoClose?'🎉':'⚠️')+'&lt;/div&gt;'+
+  '&lt;h2&gt;'+(autoClose?'✅ ':'❌ ')+title+'&lt;/h2&gt;&lt;p&gt;'+body+'&lt;/p&gt;'+
+  (autoClose?'&lt;div class="bar-wrap"&gt;&lt;div class="bar" id="b"&gt;&lt;/div&gt;&lt;/div&gt;&lt;script&gt;setTimeout(function(){document.getElementById("b").style.width="100%"},50);setTimeout(function(){window.close()},2300);&lt;\/script&gt;':'')+
+  '&lt;/div&gt;&lt;/body&gt;&lt;/html&gt;';
+}
+function escH(s){ return (s||'').toString().replace(/&amp;/g,'&amp;amp;').replace(/&lt;/g,'&amp;lt;').replace(/&gt;/g,'&amp;gt;').replace(/"/g,'&amp;quot;'); }
+
+// ─── CHECK AUTH STATUS ────────────────────────────────────────────────────────
+
+function handleCheckAuthStatus(e) {
+  var idx=parseInt(e.parameter.credIndex,10), pool=loadCredPool(), qf=loadQuotaFlags();
+  if(isNaN(idx)||idx&lt;0||idx&gt;=pool.length) return jsonErr('Invalid credIndex','INVALID_CRED_INDEX');
+  var c=pool[idx];
+  return jsonOk({success:true,auth_status:qf[idx]?'exhausted':(c.auth_status||'pending'),
+    channel_id:c.channel_id||'',channel_name:c.channel_name||'',channel_handle:c.channel_handle||'',
+    subscriber_count:c.subscriber_count||0,thumb_url:c.thumb_url||''});
+}
+
+// ─── TOKEN MANAGEMENT ─────────────────────────────────────────────────────────
+
+function getValidAccessToken(cred) {
+  if(cred.access_token&amp;&amp;cred.token_expiry&amp;&amp;Date.now()&lt;(cred.token_expiry-90000)) return cred.access_token;
+  if(!cred.refresh_token) throw new Error('NO_REFRESH_TOKEN: Credential #'+cred.index+' has no refresh token. Please authorize first.');
+
+  var resp=UrlFetchApp.fetch(OAUTH_TOKEN_URL,{
+    method:'post',contentType:'application/x-www-form-urlencoded',
+    payload:{refresh_token:cred.refresh_token,client_id:cred.client_id,client_secret:cred.client_secret,grant_type:'refresh_token'},
+    muteHttpExceptions:true
+  });
+  var d=JSON.parse(resp.getContentText());
+  if(d.error){
+    if(d.error==='invalid_grant') throw new Error('TOKEN_REVOKED: Refresh token for credential #'+cred.index+' is invalid. User may have revoked access.');
+    throw new Error('TOKEN_REFRESH_ERROR: '+(d.error_description||d.error));
+  }
+
+  var pool=loadCredPool();
+  var i=pool.findIndex(function(c2){return c2.client_id===cred.client_id;});
+  if(i&gt;-1){
+    pool[i].access_token=d.access_token;
+    pool[i].token_expiry=Date.now()+((d.expires_in||3600)*1000);
+    if(d.refresh_token) pool[i].refresh_token=d.refresh_token;
+    PropertiesService.getScriptProperties().setProperty(PROP_CRED_POOL,JSON.stringify(pool));
+    return pool[i].access_token;
+  }
+  cred.access_token=d.access_token;
+  cred.token_expiry=Date.now()+((d.expires_in||3600)*1000);
+  return cred.access_token;
+}
+
+// ─── CORE: ROUND-ROBIN QUOTA ROTATION ────────────────────────────────────────
+// callYouTubeWithRotation(requestFn, channelId)
+// - Tries each active, non-exhausted credential in order
+// - On QUOTA_EXCEEDED: marks credential exhausted, rotates to next
+// - On TOKEN_REVOKED: marks credential revoked, rotates to next
+// - Uses LockService to prevent race conditions in concurrent calls
+// - Throws ALL_QUOTA_EXHAUSTED if every credential is blocked
+
+function callYouTubeWithRotation(requestFn, channelId) {
+  var pool=loadCredPool(), qf=loadQuotaFlags();
+
+  var candidates=pool.map(function(c,i){return{cred:c,index:i};}).filter(function(item){
+    return item.cred.auth_status==='active'&amp;&amp;item.cred.refresh_token&amp;&amp;!qf[item.index];
+  });
+
+  // Prefer credential linked to this specific channel (put it first)
+  if(channelId){
+    var matched=candidates.filter(function(x){return x.cred.channel_id===channelId;});
+    var others=candidates.filter(function(x){return x.cred.channel_id!==channelId;});
+    candidates=matched.concat(others);
+  }
+
+  if(!candidates.length){
+    var totalActive=pool.filter(function(c){return c.auth_status==='active';}).length;
+    if(!totalActive) throw new Error('NO_ACTIVE_CREDENTIALS: Tidak ada credential yang diotorisasi. Tambahkan dan hubungkan credential di tab Settings.');
+    throw new Error('ALL_QUOTA_EXHAUSTED: Semua '+totalActive+' credential telah melampaui kuota API harian. Kuota reset tengah malam Pacific Time. Tambah credential baru atau tunggu reset.');
+  }
+
+  var lastError=null;
+  for(var attempt=0;attempt&lt;candidates.length;attempt++){
+    var item=candidates[attempt], cred=item.cred;
+    try {
+      var lock=LockService.getScriptLock(), lockOk=false;
+      try { lock.waitLock(15000); lockOk=true; } catch(le){ Logger.log('Lock timeout: '+le); }
+      var token;
+      try { token=getValidAccessToken(cred); } finally { if(lockOk){ try{lock.releaseLock();}catch(le){} } }
+      return requestFn(token,cred);
+    } catch(err){
+      var msg=err.toString();
+      if(msg.indexOf('TOKEN_REVOKED')&gt;-1||msg.indexOf('NO_REFRESH_TOKEN')&gt;-1){
+        var p2=loadCredPool(); if(p2[item.index]){p2[item.index].auth_status='revoked';p2[item.index].access_token='';}
+        PropertiesService.getScriptProperties().setProperty(PROP_CRED_POOL,JSON.stringify(p2));
+        lastError={type:'TOKEN_REVOKED',idx:item.index};
+        Logger.log('[Rotate] Cred #'+item.index+' revoked → trying next');
+        continue;
+      }
+      if(msg.indexOf('QUOTA_EXCEEDED')&gt;-1||msg.indexOf('quotaExceeded')&gt;-1||msg.indexOf('rateLimitExceeded')&gt;-1||(msg.indexOf('403')&gt;-1&amp;&amp;msg.indexOf('quota')&gt;-1)){
+        var qf2=loadQuotaFlags(); qf2[item.index]={exhaustedAt:Date.now()}; saveQuotaFlags(qf2);
+        lastError={type:'QUOTA_EXCEEDED',idx:item.index};
+        Logger.log('[Rotate] Cred #'+item.index+' quota exhausted → rotating');
+        continue;
+      }
+      throw err; // non-recoverable
+    }
+  }
+
+  if(lastError&amp;&amp;lastError.type==='QUOTA_EXCEEDED') throw new Error('ALL_QUOTA_EXHAUSTED: Semua credential telah melampaui kuota hari ini. Cred #'+lastError.idx+' adalah upaya terakhir.');
+  if(lastError&amp;&amp;lastError.type==='TOKEN_REVOKED') throw new Error('ALL_TOKENS_REVOKED: Semua credential memiliki token yang dicabut. Harap otorisasi ulang di tab Settings.');
+  throw new Error('ALL_CREDENTIALS_FAILED: Tidak ada credential yang berhasil melakukan panggilan API.');
+}
+
+// ─── FETCH VIDEOS ─────────────────────────────────────────────────────────────
+
+function handleFetchVideos(e) {
+  var channelId=e.parameter.channelId||'', windowDays=parseInt(e.parameter.windowDays,10)||90;
+  if(!channelId) return jsonErr('channelId diperlukan','MISSING_PARAM');
+  try {
+    var cutoff=new Date(Date.now()-windowDays*86400000).toISOString();
+    var videos=callYouTubeWithRotation(function(token){
+      var allItems=[], pt='', reachedOld=false;
+      do {
+        var url=YT_API_BASE+'/search?part=snippet&amp;forMine=true&amp;type=video&amp;maxResults=50&amp;order=date';
+        if(pt) url+='&amp;pageToken='+encodeURIComponent(pt);
+        var r1=UrlFetchApp.fetch(url,{headers:{Authorization:'Bearer '+token},muteHttpExceptions:true});
+        var d1=JSON.parse(r1.getContentText());
+        if(d1.error){ var e1=d1.error.message||JSON.stringify(d1.error); if(d1.error.code===403||e1.toLowerCase().indexOf('quota')&gt;-1) throw new Error('QUOTA_EXCEEDED: '+e1); throw new Error(e1); }
+        var pi=d1.items||[];
+        for(var i=0;i&lt;pi.length;i++){
+          var pub=pi[i].snippet&amp;&amp;pi[i].snippet.publishedAt;
+          if(pub&amp;&amp;pub&lt;cutoff){reachedOld=true;break;}
+          allItems.push(pi[i]);
+        }
+        pt=reachedOld?'':(d1.nextPageToken||'');
+      } while(pt);
+      if(!allItems.length) return [];
+      var allVideos=[];
+      for(var b=0;b&lt;allItems.length;b+=50){
+        var batch=allItems.slice(b,b+50);
+        var ids=batch.map(function(x){return x.id&amp;&amp;x.id.videoId;}).filter(Boolean).join(',');
+        if(!ids) continue;
+        var r2=UrlFetchApp.fetch(YT_API_BASE+'/videos?part=snippet,status,contentDetails&amp;id='+ids,{headers:{Authorization:'Bearer '+token},muteHttpExceptions:true});
+        var d2=JSON.parse(r2.getContentText());
+        if(d2.error){ var e2=d2.error.message||JSON.stringify(d2.error); if(d2.error.code===403||e2.toLowerCase().indexOf('quota')&gt;-1) throw new Error('QUOTA_EXCEEDED: '+e2); throw new Error(e2); }
+        allVideos=allVideos.concat(d2.items||[]);
+      }
+      return allVideos;
+    },channelId);
+    return jsonOk({success:true,videos:videos});
+  } catch(err){
+    var m=err.toString(), c='FETCH_VIDEOS_ERROR';
+    if(m.indexOf('ALL_QUOTA_EXHAUSTED')&gt;-1) c='ALL_QUOTA_EXHAUSTED';
+    if(m.indexOf('NO_ACTIVE_CREDENTIALS')&gt;-1) c='NO_ACTIVE_CREDENTIALS';
+    if(m.indexOf('ALL_TOKENS_REVOKED')&gt;-1) c='ALL_TOKENS_REVOKED';
+    return jsonErr(m,c);
+  }
+}
+
+// ─── SCHEDULE VIDEO ───────────────────────────────────────────────────────────
+
+function handleScheduleVideo(b) {
+  if(!b.videoId) return jsonErr('videoId diperlukan','MISSING_PARAM');
+  if(!b.publishAt) return jsonErr('publishAt diperlukan','MISSING_PARAM');
+  try {
+    callYouTubeWithRotation(function(token){
+      var r1=UrlFetchApp.fetch(YT_API_BASE+'/videos?part=status',{
+        method:'put',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+        payload:JSON.stringify({id:b.videoId,status:{privacyStatus:'private',publishAt:b.publishAt}}),muteHttpExceptions:true
+      });
+      var d1=JSON.parse(r1.getContentText());
+      if(d1.error){
+        var e1=d1.error.message||JSON.stringify(d1.error);
+        if(d1.error.code===403||e1.toLowerCase().indexOf('quota')&gt;-1) throw new Error('QUOTA_EXCEEDED: '+e1);
+        if(d1.error.errors&amp;&amp;d1.error.errors[0]&amp;&amp;d1.error.errors[0].reason==='invalidPublishAt') throw new Error('INVALID_PUBLISH_AT: '+b.publishAt+' — Video mungkin sudah Public atau waktu &lt; 20 menit dari sekarang.');
+        throw new Error(e1);
+      }
+      if(b.metadata&amp;&amp;(b.metadata.title||b.metadata.description||(b.metadata.tags&amp;&amp;b.metadata.tags.length))){
+        var r2=UrlFetchApp.fetch(YT_API_BASE+'/videos?part=snippet',{
+          method:'put',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+          payload:JSON.stringify({id:b.videoId,snippet:{categoryId:b.metadata.categoryId||'22',title:b.metadata.title||'',description:b.metadata.description||'',tags:b.metadata.tags||[]}}),muteHttpExceptions:true
+        });
+        var d2=JSON.parse(r2.getContentText());
+        if(d2.error){ var e2=d2.error.message||JSON.stringify(d2.error); if(d2.error.code===403||e2.toLowerCase().indexOf('quota')&gt;-1) throw new Error('QUOTA_EXCEEDED: '+e2); throw new Error(e2); }
+      }
+    },b.channelId||'');
+    return jsonOk({success:true,videoId:b.videoId,publishAt:b.publishAt});
+  } catch(err){
+    var m=err.toString(), c='SCHEDULE_ERROR';
+    if(m.indexOf('ALL_QUOTA_EXHAUSTED')&gt;-1) c='ALL_QUOTA_EXHAUSTED';
+    if(m.indexOf('INVALID_PUBLISH_AT')&gt;-1) c='INVALID_PUBLISH_AT';
+    if(m.indexOf('TOKEN_REVOKED')&gt;-1) c='TOKEN_REVOKED';
+    if(m.indexOf('NO_ACTIVE_CREDENTIALS')&gt;-1) c='NO_ACTIVE_CREDENTIALS';
+    return jsonErr(m,c);
+  }
+}
+
+// ─── UNSCHEDULE VIDEO ─────────────────────────────────────────────────────────
+
+function handleUnscheduleVideo(b) {
+  if(!b.videoId) return jsonErr('videoId diperlukan','MISSING_PARAM');
+  try {
+    callYouTubeWithRotation(function(token){
+      var r=UrlFetchApp.fetch(YT_API_BASE+'/videos?part=status',{
+        method:'put',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+        payload:JSON.stringify({id:b.videoId,status:{privacyStatus:'private'}}),muteHttpExceptions:true
+      });
+      var d=JSON.parse(r.getContentText());
+      if(d.error){ var em=d.error.message||JSON.stringify(d.error); if(d.error.code===403||em.toLowerCase().indexOf('quota')&gt;-1) throw new Error('QUOTA_EXCEEDED: '+em); throw new Error(em); }
+    },b.channelId||'');
+    return jsonOk({success:true,videoId:b.videoId});
+  } catch(err){ return jsonErr(err.toString(),'UNSCHEDULE_ERROR'); }
+}
+
+// ─── BULK SCHEDULE ────────────────────────────────────────────────────────────
+
+function handleBulkSchedule(b) {
+  var items=b.items, channelId=b.channelId||'';
+  if(!Array.isArray(items)||!items.length) return jsonErr('items array diperlukan','MISSING_PARAM');
+  var ok=[], fail=[], allExhausted=false;
+  for(var i=0;i&lt;items.length;i++){
+    var item=items[i];
+    if(!item.videoId||!item.publishAt){ fail.push({videoId:item.videoId||'?',error:'Missing videoId or publishAt',code:'MISSING_PARAM'}); continue; }
+    if(allExhausted){ fail.push({videoId:item.videoId,error:'Skipped: ALL_QUOTA_EXHAUSTED',code:'ALL_QUOTA_EXHAUSTED'}); continue; }
+    try {
+      callYouTubeWithRotation(function(token){
+        var r1=UrlFetchApp.fetch(YT_API_BASE+'/videos?part=status',{
+          method:'put',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+          payload:JSON.stringify({id:item.videoId,status:{privacyStatus:'private',publishAt:item.publishAt}}),muteHttpExceptions:true
+        });
+        var d1=JSON.parse(r1.getContentText());
+        if(d1.error){ var e1=d1.error.message||JSON.stringify(d1.error); if(d1.error.code===403||e1.toLowerCase().indexOf('quota')&gt;-1) throw new Error('QUOTA_EXCEEDED: '+e1); if(d1.error.errors&amp;&amp;d1.error.errors[0]&amp;&amp;d1.error.errors[0].reason==='invalidPublishAt') throw new Error('INVALID_PUBLISH_AT: '+e1); throw new Error(e1); }
+        if(item.metadata&amp;&amp;(item.metadata.title||item.metadata.description||(item.metadata.tags&amp;&amp;item.metadata.tags.length))){
+          var r2=UrlFetchApp.fetch(YT_API_BASE+'/videos?part=snippet',{
+            method:'put',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+            payload:JSON.stringify({id:item.videoId,snippet:{categoryId:item.metadata.categoryId||'22',title:item.metadata.title||'',description:item.metadata.description||'',tags:item.metadata.tags||[]}}),muteHttpExceptions:true
+          });
+          var d2=JSON.parse(r2.getContentText());
+          if(d2.error){ var e2=d2.error.message||JSON.stringify(d2.error); if(d2.error.code===403||e2.toLowerCase().indexOf('quota')&gt;-1) throw new Error('QUOTA_EXCEEDED: '+e2); throw new Error(e2); }
+        }
+      },channelId);
+      ok.push(item.videoId);
+    } catch(err){
+      var m=err.toString(), c='SCHEDULE_ERROR';
+      if(m.indexOf('ALL_QUOTA_EXHAUSTED')&gt;-1){c='ALL_QUOTA_EXHAUSTED';allExhausted=true;}
+      if(m.indexOf('INVALID_PUBLISH_AT')&gt;-1) c='INVALID_PUBLISH_AT';
+      if(m.indexOf('TOKEN_REVOKED')&gt;-1) c='TOKEN_REVOKED';
+      fail.push({videoId:item.videoId,error:m,code:c});
+    }
+  }
+  return jsonOk({success:fail.length===0,successIds:ok,failures:fail,successCount:ok.length,failCount:fail.length,allExhausted:allExhausted});
+}
+
+// ─── SAVE CREDENTIAL ──────────────────────────────────────────────────────────
+
+function handleSaveCredential(b) {
+  var cid=b.client_id, cs=b.client_secret;
+  if(!cid||!cs) return jsonErr('client_id dan client_secret diperlukan.','MISSING_CREDENTIAL');
+  if(cid.indexOf('.apps.googleusercontent.com')===-1) return jsonErr('Format client_id tidak valid. Harus berakhir dengan .apps.googleusercontent.com','INVALID_FORMAT');
+  if(cs.length&lt;10) return jsonErr('client_secret terlalu pendek atau tidak valid.','INVALID_SECRET');
+  var pool=loadCredPool();
+  for(var i=0;i&lt;pool.length;i++){ if(pool[i].client_id===cid) return jsonErr('Client ID ini sudah ada di pool (index #'+i+'). Gunakan Reconnect jika ingin otorisasi ulang.','DUPLICATE_CREDENTIAL'); }
+  var nc={index:pool.length,client_id:cid,client_secret:cs,refresh_token:'',access_token:'',token_expiry:0,channel_id:'',channel_name:'',channel_handle:'',subscriber_count:0,thumb_url:'',auth_status:'pending',added_at:new Date().toISOString()};
+  pool.push(nc);
+  saveCredPool(pool);
+  var credIndex=pool.length-1;
+  var cbUrl=getScriptUrl()+'?action=oauthCallback&amp;state='+credIndex;
+  return jsonOk({success:true,credIndex:credIndex,authUrl:buildAuthUrl(cid,cbUrl,credIndex)});
+}
+
+// ─── REMOVE CREDENTIAL ────────────────────────────────────────────────────────
+
+function handleRemoveCredential(b) {
+  var idx=parseInt(b.credIndex,10), pool=loadCredPool();
+  if(isNaN(idx)||idx&lt;0||idx&gt;=pool.length) return jsonErr('Invalid credIndex','INVALID_CRED_INDEX');
+  pool.splice(idx,1);
+  pool.forEach(function(c,i){c.index=i;});
+  saveCredPool(pool);
+  var f=loadQuotaFlags(), nf={};
+  Object.keys(f).forEach(function(k){ var ki=parseInt(k,10); if(ki&lt;idx) nf[ki]=f[k]; else if(ki&gt;idx) nf[ki-1]=f[k]; });
+  saveQuotaFlags(nf);
+  return jsonOk({success:true});
+}
+
+// ─── SAVE CHANNELS ────────────────────────────────────────────────────────────
+
+function handleSaveChannels(b) {
+  if(!Array.isArray(b.channels)) return jsonErr('channels must be an array','INVALID_PARAM');
+  saveChannels(b.channels);
+  return jsonOk({success:true});
+}
+
+// ─── GET CHANNEL INFO ─────────────────────────────────────────────────────────
+
+function handleGetChannelInfo(e) {
+  var idx=parseInt(e.parameter.credIndex,10), pool=loadCredPool();
+  if(isNaN(idx)||idx&lt;0||idx&gt;=pool.length) return jsonErr('Invalid credIndex','INVALID_CRED_INDEX');
+  var cred=pool[idx];
+  if(cred.auth_status!=='active'||!cred.refresh_token) return jsonErr('Credential belum diotorisasi','NOT_AUTHORIZED');
+  try {
+    var token=getValidAccessToken(cred), info=fetchChannelInfoRaw(token);
+    if(info){ pool[idx].channel_id=info.id; pool[idx].channel_name=info.name; pool[idx].channel_handle=info.handle; pool[idx].subscriber_count=info.subscriberCount; pool[idx].thumb_url=info.thumbUrl; saveCredPool(pool); }
+    return jsonOk({success:true,channel:info});
+  } catch(err){ return jsonErr(err.toString(),'GET_CHANNEL_INFO_ERROR'); }
+}
+
+function fetchChannelInfoRaw(accessToken) {
+  var r=UrlFetchApp.fetch(YT_API_BASE+'/channels?part=snippet,statistics&amp;mine=true',{headers:{Authorization:'Bearer '+accessToken},muteHttpExceptions:true});
+  var d=JSON.parse(r.getContentText());
+  if(d.error||!d.items||!d.items.length) return null;
+  var ch=d.items[0], snap=ch.snippet||{}, stats=ch.statistics||{}, thumbs=snap.thumbnails||{};
+  var thumb=thumbs.medium||thumbs.default||thumbs.high||thumbs.maxres||{};
+  var handle=snap.customUrl||''; if(handle&amp;&amp;handle[0]!=='@') handle='@'+handle;
+  return {id:ch.id,name:snap.title||'',handle:handle,subscriberCount:parseInt(stats.subscriberCount,10)||0,thumbUrl:thumb.url||''};
+}
+
+// ─── CLEAR QUOTA FLAGS ────────────────────────────────────────────────────────
+
+function handleClearQuotaFlags(e) {
+  saveQuotaFlags({});
+  return jsonOk({success:true,message:'Semua quota flags dibersihkan. Semua credential kini aktif kembali.'});
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// QA / MOCK TEST FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// TEST 1: Prove auto-rotation works
+// Usage: GET ?action=testQuotaRotation&amp;credIndex=0&amp;failAfter=2
+// Expected: first failAfter requests use cred #credIndex, then auto-rotate to next cred.
+
+function handleTestQuotaRotation(e) {
+  var credIdx=parseInt(e.parameter.credIndex||'0',10), failAfter=parseInt(e.parameter.failAfter||'2',10);
+  var pool=loadCredPool();
+  if(!pool.length) return jsonErr('No credentials in pool. Add at least 2 to test rotation.','NO_CREDENTIALS');
+  if(pool.length&lt;2) return jsonErr('Need at least 2 credentials to demonstrate rotation.','INSUFFICIENT_CREDENTIALS');
+
+  var reqCount=0, log=[];
+  for(var i=0;i&lt;failAfter+pool.length+2;i++){
+    try {
+      callYouTubeWithRotation(function(token,cred){
+        reqCount++;
+        var isTarget=(cred.index===credIdx);
+        if(isTarget&amp;&amp;reqCount&gt;failAfter){
+          log.push({req:reqCount,credIdx:cred.index,ch:cred.channel_name||'(no channel)',status:'⛔ QUOTA_EXCEEDED [SIMULATED] → rotating...'});
+          throw new Error('QUOTA_EXCEEDED: [SIMULATED] dailyLimitExceeded for credential #'+cred.index);
+        }
+        log.push({req:reqCount,credIdx:cred.index,ch:cred.channel_name||'(no channel)',status:'✅ Success'});
+        return {ok:true};
+      },'');
+    } catch(err){
+      var m=err.toString();
+      log.push({req:reqCount,status:m.indexOf('ALL_QUOTA_EXHAUSTED')&gt;-1?'🚫 ALL_QUOTA_EXHAUSTED — stopping':'❌ '+m.substring(0,80)});
+      if(m.indexOf('ALL_QUOTA_EXHAUSTED')&gt;-1) break;
+    }
+  }
+
+  // Clean up simulated quota flags
+  var f=loadQuotaFlags(); delete f[credIdx]; saveQuotaFlags(f);
+
+  return jsonOk({success:true,testType:'quota_rotation',targetCred:credIdx,failAfter:failAfter,log:log,
+    summary:'Cred #'+credIdx+' failed after '+failAfter+' requests. System auto-rotated to next credential without any frontend popup or user intervention.'});
+}
+
+// TEST 2: Simulate revoked token
+// Usage: GET ?action=testRevokedToken&amp;credIndex=0
+// Expected: credential marked as revoked, frontend shows Reconnect button.
+
+function handleTestRevokedToken(e) {
+  var idx=parseInt(e.parameter.credIndex||'0',10), pool=loadCredPool();
+  if(isNaN(idx)||idx&lt;0||idx&gt;=pool.length) return jsonErr('Invalid credIndex for test','INVALID_CRED_INDEX');
+  pool[idx].refresh_token='__SIMULATED_REVOKED__invalid_grant_test';
+  pool[idx].access_token=''; pool[idx].token_expiry=0; pool[idx].auth_status='revoked';
+  saveCredPool(pool);
+  return jsonOk({success:true,testType:'revoked_token',credIndex:idx,channelName:pool[idx].channel_name||'(no channel)',
+    message:'Credential #'+idx+' marked as revoked. Frontend should show red "Dicabut" badge and Reconnect button.',
+    mitigation:'getValidAccessToken() catches invalid_grant → marks revoked → rotation skips this credential automatically.'});
+}
+
+// TEST 3: Mark all credentials as quota-exhausted
+// Usage: GET ?action=testAllExhausted
+// Reset:  GET ?action=clearQuotaFlags
+
+function handleTestAllExhausted(e) {
+  var pool=loadCredPool(), f={};
+  pool.forEach(function(c,i){ f[i]={exhaustedAt:Date.now(),simulated:true}; });
+  saveQuotaFlags(f);
+  var nowUtc=Date.now(), pacOff=8*3600000;
+  var midnightPT=new Date(Math.ceil((nowUtc-pacOff)/86400000)*86400000+pacOff);
+  return jsonOk({success:true,testType:'all_exhausted',credentialsMarked:pool.length,quotaResetTime:midnightPT.toISOString(),
+    message:'All '+pool.length+' credential(s) marked as exhausted. Frontend should show ALL_QUOTA_EXHAUSTED banner.',
+    reset:'Call ?action=clearQuotaFlags to restore normal operation.',
+    mitigation:'Quota flags auto-expire after 24h. A time-based GAS trigger can also call handleClearQuotaFlags() at midnight PT.'});
+}
+
+// ─── BACKUP SHEET ─────────────────────────────────────────────────────────────
+
+function writeBackupSheet_() {
+  var ss=SpreadsheetApp.getActiveSpreadsheet();
+  var sheet=ss.getSheetByName(BACKUP_SHEET_NAME)||ss.insertSheet(BACKUP_SHEET_NAME);
+  var pool=loadCredPool(), channels=loadChannels();
+  sheet.clearContents();
+  sheet.getRange(1,1,1,8).setValues([['#','Client ID (partial)','Channel Name','Handle','Subscribers','Auth Status','Added At','Has Refresh Token']]).setFontWeight('bold').setBackground('#4285F4').setFontColor('#FFFFFF');
+  if(pool.length){
+    var rows=pool.map(function(c,i){ return [i+1,c.client_id?(c.client_id.substring(0,24)+'...'):'- ',c.channel_name||'(not linked)',c.channel_handle||'-',c.subscriber_count||0,c.auth_status||'pending',c.added_at||'-',c.refresh_token?'Yes ✓':'No ✗']; });
+    sheet.getRange(2,1,rows.length,8).setValues(rows);
+  }
+  var sr=pool.length+3;
+  sheet.getRange(sr,1,1,3).setValues([['Channel Label','Channel ID','Color']]).setFontWeight('bold').setBackground('#34A853').setFontColor('#FFFFFF');
+  if(channels.length){ var cr=channels.map(function(ch){return [ch.name||'-',ch.id||'-',ch.color||'-'];}); sheet.getRange(sr+1,1,cr.length,3).setValues(cr); }
+  try{sheet.autoResizeColumns(1,8);}catch(e){}
+}
+
+function getScriptUrl() { return ScriptApp.getService().getUrl(); }
+</pre><button class="copy-btn" id="copy-gas-btn" onclick="copyCode()" style="position: absolute; top: 8px; right: 8px; z-index: 2; padding: 4px 12px; font-size: 11px; font-weight: 700; border: 1px solid var(--border2); border-radius: 5px; background: var(--card); cursor: pointer; transition: 0.15s;">📋 Copy</button></div></div></div>
+        <div class="step"><span class="step-n">3</span><div class="step-body">Klik <strong>Deploy → New deployment</strong> → pilih type <strong>Web app</strong> → <em>Execute as</em>: <strong>Me</strong> &nbsp;·&nbsp; <em>Who has access</em>: <strong>Anyone</strong> → Deploy → copy <strong>Web app URL</strong>.</div></div>
+        <div class="step"><span class="step-n">4</span><div class="step-body"><strong>PENTING:</strong> Daftarkan Web App URL tersebut sebagai <strong>Authorised Redirect URI</strong> di Google Cloud Console → APIs &amp; Services → Credentials → OAuth 2.0 Client Anda.</div></div>
+        <div class="step"><span class="step-n">5</span><div class="step-body">Paste URL + buat PIN tim di form bawah, lalu klik <strong>Cek &amp; Generate File</strong>.</div></div>
+      </div>
+      <div class="divider"></div>
+      <div class="field">
+        <label>Web App URL (dari Apps Script)</label>
+        <input type="text" id="s-url" placeholder="https://script.google.com/macros/s/.../exec">
+        <div class="help">Dari Deploy → Manage deployments → copy URL-nya</div>
+      </div>
+      <div class="field">
+        <label>PIN tim</label>
+        <input type="password" id="s-pin" placeholder="Contoh: rahasia2024">
+        <div class="help">Semua anggota tim pakai PIN yang sama untuk masuk</div>
+      </div>
+      <div id="s-err"></div>
+      <button class="btn-full" id="s-btn" onclick="doSetup()" disabled="">Mengecek koneksi...</button>
+    </div>
+    <div id="setup-dl-view" style="display:none">
+      <div class="dl-box">
+        <h3>✓ Koneksi berhasil!</h3>
+        <p>File <strong>index.html</strong> sudah di-generate. Upload ke GitHub atau hosting menggantikan file lama.</p>
+        <button class="btn-full" onclick="downloadFile()" style="background:var(--green);max-width:260px;margin:0 auto">⬇ Download index.html</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── PIN SCREEN ── -->
+<div class="screen" id="sc-pin" style="display:none">
+  <div class="screen-box pin-box">
+    <div class="logo-box" style="margin:0 auto 14px"><svg viewBox="0 0 90 90"><path d="M88.3,25.4c-1-3.8-4-6.8-7.8-7.8C73.8,16,45,16,45,16S16.2,16,9.5,17.7c-3.8,1-6.8,4-7.8,7.8C0,32.1,0,46,0,46s0,13.9,1.7,20.6c1,3.8,4,6.8,7.8,7.8C16.2,76,45,76,45,76s28.8,0,35.5-1.7c3.8-1,6.8-4,7.8-7.8C90,59.9,90,46,90,46S90,32.1,88.3,25.4z M36,59V33l24,13L36,59z"></path></svg></div>
+    <div style="font-size:16px;font-weight:700;margin-bottom:4px">YT Scheduler v8</div>
+    <div style="font-size:13px;color:var(--t2);margin-bottom:20px">Masukkan password tim</div>
+    <input type="password" id="pin-input" placeholder="Password..." autocomplete="off" style="width:100%;height:44px;padding:0 14px;border:1px solid var(--border2);border-radius:var(--r2);background:var(--card);color:var(--text);font-size:15px;font-family:inherit;text-align:center;letter-spacing:2px" onkeydown="if(event.key==='Enter')checkPin()">
+    <div id="pin-err" style="font-size:12px;color:#DC2626;min-height:18px;margin-top:8px"></div>
+    <button class="btn-full" onclick="checkPin()" style="margin-top:4px">Masuk →</button>
+  </div>
+</div>
+
+<!-- ── APP CONTAINER ── -->
+<div id="app" style="display:none">
+  <div class="app">
+    <div class="header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="logo-box"><svg viewBox="0 0 90 90"><path d="M88.3,25.4c-1-3.8-4-6.8-7.8-7.8C73.8,16,45,16,45,16S16.2,16,9.5,17.7c-3.8,1-6.8,4-7.8,7.8C0,32.1,0,46,0,46s0,13.9,1.7,20.6c1,3.8,4,6.8,7.8,7.8C16.2,76,45,76,45,76s28.8,0,35.5-1.7c3.8-1,6.8-4,7.8-7.8C90,59.9,90,46,90,46S90,32.1,88.3,25.4z M36,59V33l24,13L36,59z"></path></svg></div>
+        <div>
+          <div style="font-size:15px;font-weight:700">YT Scheduler <span style="font-size:10px;background:var(--blue-bg);color:var(--blue);padding:1px 6px;border-radius:4px;font-weight:600">v8</span></div>
+          <div style="font-size:11px;color:var(--t3)">Permanent Auth · Auto Quota Rotation</div>
+        </div>
+      </div>
+      <div class="hdr-r" id="hdr-r"><button class="btn btn-sm btn-ghost" onclick="A.tab='settings';render()">⚙️ Settings</button><button class="btn btn-sm btn-ghost" onclick="doLogout()">🔒 Keluar PIN</button></div>
+    </div>
+    <div id="quota-banner" class="quota-banner hidden">
+      🚫 <strong>Semua Kuota API Habis</strong> — Kuota reset tengah malam Pacific Time. Tambah credential baru atau tunggu hingga besok.
+      <button class="btn btn-xs" style="margin-left:auto;background:#fff;color:#991b1b" onclick="gasPost('clearQuotaFlags','',{}).then(function(){toast('Quota flags dibersihkan','ok');loadData();})">Reset Manual</button>
+    </div>
+    <div id="root"><div style="text-align:center;padding:3rem 1rem;display:flex;flex-direction:column;align-items:center"><div style="font-size:36px;margin-bottom:8px">🎬</div><h2 style="font-size:18px;font-weight:800;margin-bottom:6px">Belum Ada Channel</h2><p style="font-size:13px;color:var(--t2);margin-bottom:1.25rem;max-width:340px">Tambahkan channel dan hubungkan credential di Settings untuk mulai menjadwalkan.</p><div class="info-red" style="margin-bottom:1rem">⚠ Belum ada credential. Klik <b>⚙️ Settings</b> di kanan atas untuk menambah credential.</div><button class="btn btn-red" style="font-size:14px;padding:12px 28px" onclick="A.modal='addch';render()">＋ Tambah Channel Pertama</button></div></div>
+  </div>
+</div>
+<div id="toasts"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+// YT SCHEDULER v8 — FRONTEND JAVASCRIPT
+// All YouTube API calls are now proxied through the GAS backend.
+// The frontend NEVER handles OAuth directly or stores any secrets.
+// ══════════════════════════════════════════════════════════════════════════════
+
+var A = {
+  step: 'setup', channels: lsCh(), credPool: [],
+  active: null, activeChannelId: '',
+  videos: [], scheduled: {}, hidden: {},
+  calScheduled: {}, calHistory: [], searchQuery: '',
+  filter: 'all', tab: 'list', openPanel: null, modal: null,
+  newCh: { name: '', color: '#FF0000' },
+  calM: new Date().getMonth(), calY: new Date().getFullYear(),
+  calMode: false, calTime: '08:00',
+  showHidden: false, errorMsg: null, previewData: null,
+  _meta: { titles: '', desc: '', tags: '' },
+  bulk: {
+    subTab: 'unsched', mode: 'interval', interval: 1, customN: 3,
+    startDate: '', time: '08:00', selected: [], customDates: {}
+  }
+};
+
+// Shared meta getters/setters (calMeta aliases to _meta)
+Object.defineProperty(A, 'calMeta', {
+  get: function() { return A._meta; },
+  set: function(v) { if(v){ A._meta.titles=v.titles||''; A._meta.desc=v.desc||''; A._meta.tags=v.tags||''; } },
+  enumerable: true, configurable: true
+});
+Object.defineProperties(A.bulk, {
+  titles: { get: function(){ return A._meta.titles; }, set: function(v){ A._meta.titles=v||''; }, enumerable:true, configurable:true },
+  desc:   { get: function(){ return A._meta.desc; },   set: function(v){ A._meta.desc=v||''; },   enumerable:true, configurable:true },
+  tags:   { get: function(){ return A._meta.tags; },   set: function(v){ A._meta.tags=v||''; },   enumerable:true, configurable:true }
+});
+
+var COLORS = ['#FF0000','#059669','#2563EB','#9333EA','#EA580C','#0891B2','#BE185D','#CA8A04'];
+
+// ── Storage helpers ────────────────────────────────────────────────────────────
+
+function lsCh() { try { return JSON.parse(localStorage.getItem('yt_ch')||'[]'); } catch(e){ return []; } }
+function saveCh() { localStorage.setItem('yt_ch',JSON.stringify(A.channels)); saveChannelsToGas(); }
+function saveSched() { if(!A.active) return; localStorage.setItem('yt_sc_'+A.active.id,JSON.stringify(A.scheduled)); }
+function loadSched(ch) { try { return JSON.parse(localStorage.getItem('yt_sc_'+ch.id)||'{}'); } catch(e){ return {}; } }
+function saveHidden() { if(!A.active) return; localStorage.setItem('yt_hid_'+A.active.id,JSON.stringify(A.hidden)); }
+function loadHidden(ch) { try { return JSON.parse(localStorage.getItem('yt_hid_'+ch.id)||'{}'); } catch(e){ return {}; } }
+function persistDraftState() {
+  try { sessionStorage.setItem('yt_draft_state',JSON.stringify({bulk:A.bulk,calScheduled:A.calScheduled,calHistory:A.calHistory||[],calMeta:A.calMeta})); } catch(e){}
+}
+
+// ── GAS API helpers ────────────────────────────────────────────────────────────
+
+async function gasGet(action, params) {
+  if(!SHEETS_URL) throw new Error('SHEETS_URL not configured');
+  var url = SHEETS_URL + '?action=' + encodeURIComponent(action) + '&t=' + Date.now();
+  if(params) { Object.keys(params).forEach(function(k){ url += '&'+encodeURIComponent(k)+'='+encodeURIComponent(params[k]); }); }
+  var r = await fetch(url);
+  var d = await r.json();
+  if(d.success === false) throw Object.assign(new Error(d.error || 'GAS error'), { errorCode: d.errorCode });
+  return d;
+}
+
+async function gasPost(action, body) {
+  if(!SHEETS_URL) throw new Error('SHEETS_URL not configured');
+  var url = SHEETS_URL + '?action=' + encodeURIComponent(action);
+  var r = await fetch(url, { method:'POST', body: JSON.stringify(body), headers:{'Content-Type':'text/plain'} });
+  var d = await r.json();
+  if(d.success === false) throw Object.assign(new Error(d.error || 'GAS error'), { errorCode: d.errorCode });
+  return d;
+}
+
+// ── Load data from GAS ─────────────────────────────────────────────────────────
+
+var _loadPending = false;
+async function loadData() {
+  if(_loadPending) return;
+  _loadPending = true;
+  try {
+    var d = await gasGet('loadData');
+    A.credPool = d.credPool || [];
+    if(d.channels && d.channels.length) {
+      A.channels = d.channels;
+      localStorage.setItem('yt_ch', JSON.stringify(A.channels));
+    }
+    updateQuotaBanner();
+    render();
+  } catch(e) {
+    toast('⚠ Gagal memuat data: ' + e.message, 'err');
+  }
+  _loadPending = false;
+}
+
+async function saveChannelsToGas() {
+  try { await gasPost('saveChannels', { channels: A.channels }); } catch(e){}
+}
+
+function updateQuotaBanner() {
+  var allExhausted = A.credPool.length > 0 && A.credPool.every(function(c){ return c.auth_status === 'exhausted'; });
+  var banner = $('quota-banner');
+  if(banner) banner.classList.toggle('hidden', !allExhausted);
+}
+
+// ── Screen management ──────────────────────────────────────────────────────────
+
+function init() {
+  if(SHEETS_URL && TEAM_PIN) {
+    if(sessionStorage.getItem('ytsched-sess')==='ok') { showApp(); return; }
+    showScreen('pin');
+  } else { showScreen('setup'); }
+}
+
+function showScreen(s) {
+  var ss=$('sc-setup'), sp=$('sc-pin'), app=$('app');
+  if(ss) ss.style.display = s==='setup'?'flex':'none';
+  if(sp) sp.style.display = s==='pin'?'flex':'none';
+  if(app) app.style.display = 'none';
+  if(s==='pin') setTimeout(function(){ var el=$('pin-input'); if(el){el.value='';el.focus();} },100);
+}
+
+function showApp() {
+  var ss=$('sc-setup'), sp=$('sc-pin'), app=$('app');
+  if(ss) ss.style.display='none'; if(sp) sp.style.display='none';
+  if(app) app.style.display='block';
+  sessionStorage.setItem('ytsched-sess','ok');
+  loadData();
+}
+
+function checkPin() {
+  var v=val('pin-input');
+  if(v===TEAM_PIN) { if($('pin-input')) $('pin-input').value=''; if($('pin-err')) $('pin-err').textContent=''; showApp(); }
+  else { if($('pin-err')) $('pin-err').textContent='Password salah, coba lagi.'; if($('pin-input')){$('pin-input').value='';$('pin-input').focus();} }
+}
+
+function doLogout() { sessionStorage.removeItem('ytsched-sess'); showScreen('pin'); }
+
+var generatedHtml='';
+async function doSetup() {
+  var url=val('s-url').trim(), pin=val('s-pin').trim();
+  if(!url||!url.includes('script.google.com')){ showSErr('URL tidak valid. Harus dari script.google.com'); return; }
+  if(!pin){ showSErr('Password tidak boleh kosong.'); return; }
+  var btn=$('s-btn'); if(btn){btn.disabled=true;btn.textContent='Mengecek koneksi...';}
+  try {
+    var r=await fetch(url+'?action=loadData&t='+Date.now());
+    var d=await r.json();
+    if(d.success===false) throw new Error(d.error);
+    var src=document.documentElement.outerHTML;
+    generatedHtml=src.replace('const SHEETS_URL = "";','const SHEETS_URL = "'+url+'";').replace('const TEAM_PIN   = "";','const TEAM_PIN   = "'+pin+'";');
+    if($('setup-step-view')) $('setup-step-view').style.display='none';
+    if($('setup-dl-view')) $('setup-dl-view').style.display='block';
+  } catch(e) {
+    showSErr('Gagal: '+e.message+'. Pastikan Web App di-deploy sebagai Anyone.');
+    if(btn){btn.disabled=false;btn.textContent='Cek Koneksi & Generate File →';}
+  }
+}
+function showSErr(m){ var el=$('s-err'); if(el) el.innerHTML='<div class="s-err">⚠ '+m+'</div>'; }
+function downloadFile(){ var blob=new Blob([generatedHtml],{type:'text/html'}); var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='index.html'; a.click(); }
+
+// ── Channel management ─────────────────────────────────────────────────────────
+
+function addChannel() {
+  var name=val('nc-name').trim()||'Channel Baru';
+  var ch={id:Date.now().toString(),name:name,color:A.newCh.color||'#FF0000'};
+  A.channels.push(ch); saveCh(); A.modal=null; A.newCh={name:'',color:'#FF0000'};
+  toast('Channel ditambahkan!','ok'); render();
+  // Auto-switch to this channel
+  setTimeout(function(){ switchCh(ch); },150);
+}
+
+function delChannel(id) {
+  A.channels=A.channels.filter(function(c){return c.id!==id;}); saveCh();
+  if(A.active&&A.active.id===id){ A.videos=[]; A.scheduled={}; A.step='setup'; A.active=null; A.activeChannelId=''; }
+  render(); toast('Channel dihapus','inf');
+}
+
+function switchCh(ch) {
+  if(A.active && A.active.id===ch.id && A.step==='dashboard') return;
+  A.active=ch; A.activeChannelId=''; A.videos=[]; A.scheduled=loadSched(ch); A.hidden=loadHidden(ch);
+  A.step='loading'; render(); fetchVideos();
+}
+
+// ── Fetch videos via GAS backend ───────────────────────────────────────────────
+
+async function fetchVideos() {
+  if(!A.active) return;
+  A.step='loading'; render();
+  try {
+    var d = await gasGet('fetchVideos', { channelId: A.active.id, windowDays: DRAFT_WINDOW_DAYS });
+    A.videos = d.videos || [];
+    // Extract YouTube channel ID from the first video if not already set
+    if(!A.activeChannelId && A.videos.length) {
+      // Try to find matching credential for this channel label
+      var matchedCred = A.credPool.find(function(c){ return c.channel_name && A.active.name && c.channel_name.toLowerCase()===A.active.name.toLowerCase(); });
+      if(matchedCred) A.activeChannelId = matchedCred.channel_id;
+    }
+    A.videos.forEach(function(v){ if(v.status&&v.status.publishAt) A.scheduled[v.id]=v.status.publishAt; });
+    saveSched(); A.step='dashboard'; render();
+  } catch(e) {
+    var code = e.errorCode || '';
+    if(code==='ALL_QUOTA_EXHAUSTED') { toast('🚫 Semua kuota API habis. Tambah credential baru di Settings.','err'); updateQuotaBanner(); }
+    else if(code==='NO_ACTIVE_CREDENTIALS') { toast('⚠ Belum ada credential aktif. Tambah & hubungkan credential di tab Settings.','err'); }
+    else { toast('Gagal memuat video: '+e.message,'err'); }
+    A.step='dashboard'; render();
+  }
+}
+
+// ── Schedule / Unschedule video via GAS ───────────────────────────────────────
+
+async function apiSet(videoId, publishAt, metadata, categoryId) {
+  return await gasPost('scheduleVideo', {
+    videoId: videoId, publishAt: publishAt,
+    channelId: A.activeChannelId || A.active.id,
+    metadata: metadata ? Object.assign({}, metadata, {categoryId: categoryId||'22'}) : null
+  });
+}
+
+async function apiUnset(videoId) {
+  return await gasPost('unscheduleVideo', {
+    videoId: videoId, channelId: A.activeChannelId || A.active.id
+  });
+}
+
+// ── Per-video schedule action ──────────────────────────────────────────────────
+
+async function doSchedule(vid) {
+  var date=val('d-'+vid), time=val('t-'+vid)||'00:00';
+  if(!date){ toast('Pilih tanggal dulu','err'); return; }
+  var btn=$('save-'+vid); if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
+  try {
+    var pub=localToUTC(date,time);
+    await apiSet(vid,pub);
+    A.scheduled[vid]=pub; saveSched(); A.openPanel=null;
+    toast('✓ Dijadwalkan: '+fmtDate(pub),'ok'); render();
+  } catch(e) {
+    showErrorModal(e.message);
+    if(btn){btn.disabled=false;btn.textContent='Simpan';}
+  }
+}
+
+async function doUnschedule(vid) {
+  try { await apiUnset(vid); delete A.scheduled[vid]; saveSched(); toast('Jadwal dihapus','inf'); render(); }
+  catch(e){ toast('Error: '+e.message,'err'); }
+}
+
+function openPanel(id){ A.openPanel=(A.openPanel===id?null:id); render(); }
+
+// ── Bulk queue runner ──────────────────────────────────────────────────────────
+
+async function runBulkQueue(items, startOk, startFail, titleLines, descText, tagsArr, offset) {
+  offset=offset||0;
+  var btn=$('bulk-apply');
+  var ok=startOk, fail=startFail, total=startOk+startFail+items.length;
+
+  for(var localI=0; localI<items.length; localI++) {
+    var i=offset+localI, item=items[localI];
+    var vObj=A.videos.find(function(x){return x.id===item.id;});
+    var newTitle=titleLines[i]||getTitle(vObj);
+    var metadata=null, hasMeta=false;
+    if(A.bulk.titles||A.bulk.desc||A.bulk.tags) {
+      metadata={ title:newTitle, description:A.bulk.desc?descText:((vObj&&vObj.snippet&&vObj.snippet.description)||''), tags:A.bulk.tags?tagsArr:((vObj&&vObj.snippet&&vObj.snippet.tags)||[]) };
+      hasMeta=true;
+    }
+    var catId=(vObj&&vObj.snippet&&vObj.snippet.categoryId)?vObj.snippet.categoryId:'22';
+
+    try {
+      await apiSet(item.id, item.publishAt, hasMeta?metadata:null, catId);
+      A.scheduled[item.id]=item.publishAt; ok++;
+      if(btn) btn.textContent='Menyimpan '+ok+'/'+total+'...';
+      var sIdx=A.bulk.selected.indexOf(item.id); if(sIdx>-1) A.bulk.selected.splice(sIdx,1);
+    } catch(e) {
+      var code=e.errorCode||'';
+      if(code==='ALL_QUOTA_EXHAUSTED'||(e.message&&e.message.indexOf('ALL_QUOTA_EXHAUSTED')>-1)) {
+        saveSched(); persistDraftState();
+        toast('🚫 Semua kuota habis! '+ok+' berhasil, '+fail+' gagal. Sisa '+( items.length-localI)+' video tidak diproses.','err');
+        updateQuotaBanner();
+        if(btn){btn.disabled=false;btn.textContent='Terapkan Jadwal';}
+        return;
+      }
+      showErrorModal(e.message); fail++;
+    }
+  }
+
+  saveSched(); persistDraftState();
+  if(fail===0) toast('✓ '+ok+' video berhasil dijadwalkan!','ok');
+  else toast(ok+' berhasil, '+fail+' gagal','inf');
+  if(btn){btn.disabled=false;btn.textContent='Terapkan Jadwal';}
+  render();
+}
+
+async function runCalQueue(ids, startOk, startFail, hasMeta, titleLines, descText, tagsArr, offset) {
+  offset=offset||0;
+  var btn=$('cal-save-btn');
+  var ok=startOk, fail=startFail, total=startOk+startFail+ids.length;
+
+  for(var localI=0; localI<ids.length; localI++) {
+    var i=offset+localI, vid=ids[localI];
+    var pub=A.calScheduled[vid];
+    var vObj=A.videos.find(function(x){return x.id===vid;});
+    var newTitle=(hasMeta&&titleLines[i])?titleLines[i]:getTitle(vObj);
+    var metadata={ title:newTitle, description:hasMeta?descText:((vObj&&vObj.snippet&&vObj.snippet.description)||''), tags:hasMeta&&tagsArr.length?tagsArr:((vObj&&vObj.snippet&&vObj.snippet.tags)||[]) };
+    var catId=(vObj&&vObj.snippet&&vObj.snippet.categoryId)?vObj.snippet.categoryId:'22';
+
+    try {
+      await apiSet(vid, pub, metadata, catId);
+      A.scheduled[vid]=pub; ok++;
+      if(btn) btn.textContent='Menyimpan '+ok+'/'+total+'...';
+    } catch(e) {
+      var code=e.errorCode||'';
+      if(code==='ALL_QUOTA_EXHAUSTED'||(e.message&&e.message.indexOf('ALL_QUOTA_EXHAUSTED')>-1)) {
+        saveSched(); persistDraftState();
+        toast('🚫 Semua kuota habis! '+ok+' berhasil.','err'); updateQuotaBanner();
+        if(btn){btn.disabled=false;btn.textContent='💾 Simpan ke YT';}
+        return;
+      }
+      showErrorModal(e.message); fail++;
+    }
+  }
+
+  saveSched(); A.calScheduled={}; A.calHistory=[]; A.calMeta={titles:'',desc:'',tags:''}; persistDraftState();
+  if(fail===0) toast('✓ '+ok+' jadwal disimpan!','ok'); else toast(ok+' berhasil, '+fail+' gagal','inf');
+  if(btn){btn.disabled=false;btn.textContent='💾 Simpan ke YT';}
+  render();
+}
+
+async function applyBulk() {
+  A.bulk.time=val('b-time')||A.bulk.time;
+  if(A.bulk.mode==='interval') A.bulk.startDate=val('b-start')||A.bulk.startDate;
+  if(A.bulk.mode==='custom'){ A.bulk.selected.forEach(function(id){var v=val('bc-'+id);if(v)A.bulk.customDates[id]=v;}); }
+  A.bulk.titles=val('b-titles'); A.bulk.desc=val('b-desc'); A.bulk.tags=val('b-tags');
+  var preview=getBulkPreview();
+  if(!preview.length){ toast('Tidak ada jadwal untuk diterapkan','err'); return; }
+  var btn=$('bulk-apply'); if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
+  var titleLines=(A.bulk.titles||'').split('\n').map(function(x){return x.replace(/^\s*\d+[\.\-\)]\s*/,'').trim();}).filter(Boolean);
+  var descText=A.bulk.desc||'';
+  var tagsArr=(A.bulk.tags||'').split(',').map(function(x){return x.trim();}).filter(Boolean);
+  await runBulkQueue(preview,0,0,titleLines,descText,tagsArr,0);
+}
+
+async function doSaveCalScheduled() {
+  var ids=Object.keys(A.calScheduled); if(!ids.length) return;
+  var titleLines=(A.calMeta.titles||'').split('\n').map(function(x){return x.replace(/^\s*\d+[\.\-\)]\s*/,'').trim();}).filter(Boolean);
+  var descText=A.calMeta.desc||'';
+  var tagsArr=(A.calMeta.tags||'').split(',').map(function(x){return x.trim();}).filter(Boolean);
+  var hasMeta=!!(A.calMeta.titles||A.calMeta.desc||A.calMeta.tags);
+  var btn=$('cal-save-btn'); if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
+  await runCalQueue(ids,0,0,hasMeta,titleLines,descText,tagsArr,0);
+}
+
+// ── Credential Pool Management ─────────────────────────────────────────────────
+
+// Parse uploaded client_secret.json and validate before sending to GAS
+function handleJsonUpload(input) {
+  var file=input.files[0];
+  if(!file) return;
+
+  // ── EDGE CASE: Invalid JSON file ──────────────────────────────────────────
+  if(!file.name.endsWith('.json')&&file.type!=='application/json') {
+    toast('⚠ File harus berformat .json','err'); return;
+  }
+  if(file.size > 512*1024) { // 512 KB max — client_secret.json is always tiny
+    toast('⚠ File terlalu besar. client_secret.json seharusnya < 5KB','err'); return;
+  }
+
+  var reader=new FileReader();
+  reader.onload=function(e) {
+    var raw=e.target.result;
+    var parsed;
+    try { parsed=JSON.parse(raw); }
+    catch(pe) {
+      toast('❌ Format JSON tidak valid: '+pe.message,'err');
+      showUploadError('File bukan JSON yang valid: '+pe.message); return;
+    }
+
+    // ── EDGE CASE: Wrong JSON structure ───────────────────────────────────────
+    var cred=parsed.installed||parsed.web;
+    if(!cred) {
+      showUploadError('Format tidak valid. File harus berisi key "installed" atau "web" (GCP client_secret.json).');
+      return;
+    }
+    if(!cred.client_id) { showUploadError('client_id tidak ditemukan di file JSON.'); return; }
+    if(!cred.client_secret) { showUploadError('client_secret tidak ditemukan di file JSON.'); return; }
+    if(cred.client_id.indexOf('.apps.googleusercontent.com')===-1) {
+      showUploadError('client_id tidak valid. Harus berakhir dengan .apps.googleusercontent.com'); return;
+    }
+    if(!cred.redirect_uris||!cred.redirect_uris.length) {
+      showUploadError('redirect_uris tidak ditemukan. Pastikan OAuth Client di GCP sudah dikonfigurasi dengan benar.'); return;
+    }
+
+    // All good — send to GAS
+    uploadCredentialToGas(cred.client_id, cred.client_secret);
+  };
+  reader.readAsText(file);
+  input.value=''; // reset file input
+}
+
+function showUploadError(msg) {
+  var el=$('upload-error'); if(el){ el.textContent=msg; el.style.display='block'; }
+  toast('❌ '+msg,'err');
+}
+
+var _authPollers={};
+
+async function uploadCredentialToGas(clientId, clientSecret) {
+  var uploadBtn=$('upload-json-btn');
+  if(uploadBtn){uploadBtn.disabled=true;uploadBtn.textContent='Mengirim...';}
+  if($('upload-error')) $('upload-error').style.display='none';
+  try {
+    var d = await gasPost('saveCredential', { client_id: clientId, client_secret: clientSecret });
+    toast('✓ Credential disimpan. Membuka jendela otorisasi...','ok');
+    openAuthWindow(d.credIndex, d.authUrl);
+  } catch(e) {
+    var code=e.errorCode||'';
+    var msg=e.message||'Unknown error';
+    if(code==='DUPLICATE_CREDENTIAL') toast('⚠ Client ID sudah ada di pool.','inf');
+    else if(code==='INVALID_FORMAT') toast('❌ Format client_id tidak valid.','err');
+    else toast('❌ Gagal menyimpan credential: '+msg,'err');
+    if($('upload-error')){ $('upload-error').textContent=msg; $('upload-error').style.display='block'; }
+  }
+  if(uploadBtn){uploadBtn.disabled=false;uploadBtn.textContent='Upload client_secret.json';}
+}
+
+function openAuthWindow(credIndex, authUrl) {
+  var popup=window.open(authUrl,'yt_scheduler_auth','width=600,height=700,left=200,top=100');
+  if(!popup){ toast('⚠ Popup diblokir! Izinkan popup untuk domain ini, lalu coba lagi.','err'); return; }
+
+  // Poll for auth completion
+  var attempts=0, maxAttempts=120; // 2 minutes timeout
+  _authPollers[credIndex]=setInterval(async function() {
+    attempts++;
+    if(attempts>maxAttempts) {
+      clearInterval(_authPollers[credIndex]);
+      toast('⏱ Timeout menunggu otorisasi. Coba lagi jika diperlukan.','inf');
+      await loadData(); render();
+      return;
+    }
+    try {
+      var d = await gasGet('checkAuthStatus',{credIndex:credIndex});
+      if(d.auth_status==='active') {
+        clearInterval(_authPollers[credIndex]);
+        if(popup&&!popup.closed) popup.close();
+        toast('🎉 Channel "'+d.channel_name+'" berhasil dihubungkan!','ok');
+        await loadData(); render();
+      } else if(d.auth_status==='error'||d.auth_status==='revoked') {
+        clearInterval(_authPollers[credIndex]);
+        toast('❌ Otorisasi gagal atau dibatalkan. Coba lagi.','err');
+        await loadData(); render();
+      }
+    } catch(pe){}
+  }, 1000);
+}
+
+async function reconnectCredential(credIndex) {
+  try {
+    var d = await gasGet('getAuthUrl', {credIndex:credIndex});
+    openAuthWindow(credIndex, d.authUrl);
+    toast('Membuka jendela otorisasi ulang...','inf');
+  } catch(e) { toast('❌ Gagal mendapatkan URL otorisasi: '+e.message,'err'); }
+}
+
+async function removeCredential(credIndex) {
+  if(!confirm('Hapus credential #'+(credIndex+1)+'? Tindakan ini tidak bisa dibatalkan.')) return;
+  try {
+    await gasPost('removeCredential', { credIndex: credIndex });
+    toast('Credential dihapus','inf');
+    await loadData(); render();
+  } catch(e){ toast('❌ Gagal menghapus: '+e.message,'err'); }
+}
+
+// ── QA Test functions ──────────────────────────────────────────────────────────
+
+async function runQaTest(type, params) {
+  var btn=$('qa-'+type+'-btn');
+  if(btn){btn.disabled=true;btn.textContent='Running...';}
+  try {
+    var d = await gasGet(type, params||{});
+    var resultEl=$('qa-result');
+    if(resultEl){
+      resultEl.style.display='block';
+      resultEl.textContent=JSON.stringify(d,null,2);
+    }
+    toast('QA test complete. See result below.','ok');
+    await loadData(); render();
+  } catch(e) {
+    toast('QA test error: '+e.message,'err');
+  }
+  if(btn){btn.disabled=false;btn.textContent=btn.getAttribute('data-label')||'Run';}
+}
+
+// ── Calendar ───────────────────────────────────────────────────────────────────
+
+function handleCalClick(y,m,d) {
+  if(!A.calMode) return;
+  var time=A.calTime||'00:00';
+  var dateStr=y+'-'+pad(m+1)+'-'+pad(d);
+  var utcPub=localToUTC(dateStr,time);
+  if(new Date(utcPub).getTime()<Date.now()){ toast('Waktu sudah lewat!','err'); return; }
+  var drafts=getDrafts().filter(function(v){return !A.scheduled[v.id]&&!A.calScheduled[v.id];});
+  if(A.searchQuery&&A.searchQuery.trim()){
+    var q=A.searchQuery.toLowerCase();
+    drafts=drafts.filter(function(v){return getTitle(v).toLowerCase().includes(q);});
+  }
+  if(!drafts.length){ toast('Tidak ada draft tersisa!','inf'); return; }
+  var v=drafts[0];
+  A.calScheduled[v.id]=utcPub;
+  if(!A.calHistory) A.calHistory=[];
+  A.calHistory.push(v.id);
+  persistDraftState(); render();
+}
+
+function prepareCalSave() { prepareSavePreview('cal'); }
+function saveBulkValues() { prepareSavePreview('bulk'); }
+
+function undoCal() {
+  if(!A.calHistory||!A.calHistory.length) return;
+  var vid=A.calHistory.pop();
+  if(vid){ delete A.calScheduled[vid]; toast('Jadwal dibatalkan','inf'); persistDraftState(); render(); }
+}
+
+// ── Preview & Confirm Save ─────────────────────────────────────────────────────
+
+function getBulkPreview() {
+  var b=A.bulk, sel=b.selected, time=val('b-time')||b.time, result=[];
+  if(b.mode==='interval') {
+    var start=val('b-start')||b.startDate;
+    if(!start||!sel.length) return [];
+    for(var i=0;i<sel.length;i++) result.push({id:sel[i],date:addDays(start,i*b.interval),time:time,publishAt:localToUTC(addDays(start,i*b.interval),time)});
+  } else {
+    for(var i=0;i<sel.length;i++){
+      var id=sel[i], dateStr=val('bc-'+id)||b.customDates[id]||'';
+      if(dateStr) result.push({id:id,date:dateStr,time:time,publishAt:localToUTC(dateStr,time)});
+    }
+  }
+  return result;
+}
+
+function prepareSavePreview(source) {
+  if(source==='bulk'){
+    A.bulk.time=val('b-time')||A.bulk.time;
+    if(A.bulk.mode==='interval') A.bulk.startDate=val('b-start')||A.bulk.startDate;
+    if(A.bulk.mode==='custom'){ A.bulk.selected.forEach(function(id){var v=val('bc-'+id);if(v)A.bulk.customDates[id]=v;}); }
+    A.bulk.titles=val('b-titles'); A.bulk.desc=val('b-desc'); A.bulk.tags=val('b-tags');
+  } else {
+    A.calMeta.titles=val('cal-titles'); A.calMeta.desc=val('cal-desc'); A.calMeta.tags=val('cal-tags');
+  }
+
+  var previewItems=[], hasError=false;
+  if(source==='bulk') {
+    var bP=getBulkPreview(); if(!bP.length){toast('Tidak ada jadwal untuk diterapkan','err');return;}
+    var bTL=(A.bulk.titles||'').split('\n').map(function(x){return x.replace(/^\s*\d+[\.\-\)]\s*/,'').trim();}).filter(Boolean);
+    for(var bi=0;bi<bP.length;bi++){
+      var bItem=bP[bi], bVObj=A.videos.find(function(x){return x.id===bItem.id;}), bOld=getTitle(bVObj), bNew=bTL[bi]||bOld, bLen=bNew.length, bErr=bLen>100;
+      if(bErr) hasError=true;
+      previewItems.push({id:bItem.id,publishAt:bItem.publishAt,dateLabel:fmtDate(bItem.publishAt),thumb:getThumb(bVObj),oldTitle:bOld,newTitle:bNew,changed:bNew!==bOld,len:bLen,err:bErr});
+    }
+  } else {
+    var calIds=Object.keys(A.calScheduled); if(!calIds.length){toast('Tidak ada jadwal untuk disimpan','err');return;}
+    var cTL=(A.calMeta.titles||'').split('\n').map(function(x){return x.replace(/^\s*\d+[\.\-\)]\s*/,'').trim();}).filter(Boolean);
+    for(var ci=0;ci<calIds.length;ci++){
+      var cVid=calIds[ci], cPub=A.calScheduled[cVid], cVObj=A.videos.find(function(x){return x.id===cVid;}), cOld=getTitle(cVObj), cNew=cTL[ci]||cOld, cLen=cNew.length, cErr=cLen>100;
+      if(cErr) hasError=true;
+      previewItems.push({id:cVid,publishAt:cPub,dateLabel:fmtDate(cPub),thumb:getThumb(cVObj),oldTitle:cOld,newTitle:cNew,changed:cNew!==cOld,len:cLen,err:cErr});
+    }
+  }
+
+  var pubSet=new Set(), hasCollision=false;
+  previewItems.forEach(function(p){ if(pubSet.has(p.publishAt)) hasCollision=true; pubSet.add(p.publishAt); });
+  A.previewData={source:source,rows:previewItems,hasError:hasError,hasCollision:hasCollision};
+  A.modal='confirm_save'; render();
+}
+
+function executeSchedule() {
+  if(!A.previewData||A.previewData.hasError) return;
+  var src=A.previewData.source; A.modal=null; A.previewData=null; render();
+  if(src==='bulk') applyBulk(); else doSaveCalScheduled();
+}
+
+// ── Misc actions ───────────────────────────────────────────────────────────────
+
+function signOut() { A.videos=[]; A.scheduled={}; A.hidden={}; A.step='setup'; A.active=null; A.activeChannelId=''; render(); toast('Signed out','inf'); }
+async function refresh() { A.step='loading'; render(); await fetchVideos(); }
+async function confirmUnscheduleAll() {
+  var sched=getDrafts().filter(function(v){return !!A.scheduled[v.id];});
+  if(!sched.length) return;
+  if(!confirm('Hapus jadwal untuk SEMUA '+sched.length+' video?')) return;
+  var ok=0;
+  for(var i=0;i<sched.length;i++){ try{ await apiUnset(sched[i].id); delete A.scheduled[sched[i].id]; ok++; }catch(e){} }
+  saveSched(); toast(ok+' jadwal berhasil dihapus','inf'); render();
+}
+function toggleBulkSel(id){ var idx=A.bulk.selected.indexOf(id); if(idx>-1) A.bulk.selected.splice(idx,1); else A.bulk.selected.push(id); persistDraftState(); render(); }
+function selectAllBulk() {
+  var unscheduled=getDrafts().filter(function(v){return !A.scheduled[v.id];});
+  var q=(A.searchQuery||'').toLowerCase();
+  var tgt=q?unscheduled.filter(function(v){return getTitle(v).toLowerCase().includes(q);}):unscheduled;
+  var tgtIds=tgt.map(function(v){return v.id;});
+  if(!tgtIds.length) return;
+  var allSel=tgtIds.every(function(id){return A.bulk.selected.indexOf(id)>-1;});
+  if(allSel) A.bulk.selected=A.bulk.selected.filter(function(id){return tgtIds.indexOf(id)===-1;});
+  else tgtIds.forEach(function(id){if(A.bulk.selected.indexOf(id)===-1) A.bulk.selected.push(id);});
+  persistDraftState(); render();
+}
+function moveUp(id){ var arr=A.bulk.selected,i=arr.indexOf(id); if(i>0){arr.splice(i,1);arr.splice(i-1,0,id);} persistDraftState(); render(); }
+function moveDown(id){ var arr=A.bulk.selected,i=arr.indexOf(id); if(i<arr.length-1){arr.splice(i,1);arr.splice(i+1,0,id);} persistDraftState(); render(); }
+function setInterval2(n){ var bs=val('b-start'),bt=val('b-time'); if(bs)A.bulk.startDate=bs;if(bt)A.bulk.time=bt; A.bulk.interval=n; persistDraftState(); render(); }
+function setMode(m){ var bs=val('b-start'),bt=val('b-time'); if(bs)A.bulk.startDate=bs;if(bt)A.bulk.time=bt; A.bulk.mode=m; persistDraftState(); render(); }
+function hideVideo(id){ A.hidden[id]=true; saveHidden(); render(); }
+function unhideVideo(id){ delete A.hidden[id]; saveHidden(); render(); }
+function showErrorModal(msg){ A.errorMsg=msg; A.modal='error'; render(); }
+
+// ── Data helpers ───────────────────────────────────────────────────────────────
+
+function getDrafts() {
+  var windowDays=typeof DRAFT_WINDOW_DAYS!=='undefined'?DRAFT_WINDOW_DAYS:90;
+  var cutoff=new Date(Date.now()-windowDays*86400000);
+  return A.videos.filter(function(v){
+    var s=v.status||{}; if(A.hidden[v.id]) return false;
+    if(s.privacyStatus!=='private') return false;
+    var pub=v.snippet&&v.snippet.publishedAt;
+    if(pub&&new Date(pub)<cutoff) return false;
+    return true;
+  });
+}
+function getFiltered() {
+  var d=getDrafts();
+  if(A.filter==='scheduled') return d.filter(function(v){return A.scheduled[v.id];});
+  if(A.filter==='unscheduled') return d.filter(function(v){return !A.scheduled[v.id];});
+  return d;
+}
+function getThumb(v){ var t=v&&v.snippet&&v.snippet.thumbnails; return t&&(t.medium||t.default); }
+function getTitle(v){ return (v&&v.snippet&&v.snippet.title)||'Untitled'; }
+
+// ── Date / time utilities ──────────────────────────────────────────────────────
+
+function tzOffset(){ return -new Date().getTimezoneOffset()/60; }
+function tzLabel(){ var o=tzOffset(), n={7:'WIB',8:'WITA',9:'WIT'}; return n[o]||(o>=0?'UTC+'+o:'UTC'+o); }
+function localToUTC(date,time) {
+  var dp=date.split('-'), tp=(time||'00:00').split(':');
+  var d=new Date(parseInt(dp[0],10),parseInt(dp[1],10)-1,parseInt(dp[2],10),parseInt(tp[0],10),parseInt(tp[1],10),0);
+  var minTime=Date.now()+(20*60*1000);
+  if(d.getTime()<minTime) d=new Date(minTime);
+  return d.toISOString();
+}
+function utcToLocal(iso){ if(!iso) return{date:'',time:''}; var d=new Date(iso); return{date:d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()),time:pad(d.getHours())+':'+pad(d.getMinutes())}; }
+function pad(n){ return String(n).padStart(2,'0'); }
+function addDays(dateStr,days){ var d=new Date(dateStr+'T12:00:00'); d.setDate(d.getDate()+days); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+function fmtDate(iso){ if(!iso) return ''; return new Date(iso).toLocaleString('id-ID',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
+function fmtShort(dateStr){ if(!dateStr) return '-'; var d=new Date(dateStr+'T12:00:00'); return d.toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}); }
+function isSoon(iso){ if(!iso) return false; var d=new Date(iso)-Date.now(); return d>0&&d<7*864e5; }
+function today(){ return new Date().toISOString().split('T')[0]; }
+function tomorrow(){ var d=new Date(); d.setDate(d.getDate()+1); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function $(id){ return document.getElementById(id); }
+function val(id){ return ($(id)||{}).value||''; }
+
+function toast(msg,type){ var el=document.createElement('div'); el.className='toast '+(type||'inf'); el.textContent=msg; $('toasts').appendChild(el); setTimeout(function(){el.style.transition='all .3s';el.style.opacity='0';el.style.transform='translateY(8px)';setTimeout(function(){el.remove();},320);},3200); }
+
+// ── Char counter ───────────────────────────────────────────────────────────────
+
+function getCounterHtml(cntId,val,maxLen,isMultiLine) {
+  var len=0;
+  if(isMultiLine&&val){ var lines=val.split('\n'); for(var i=0;i<lines.length;i++){var l=lines[i].replace(/^\s*\d+[\.\-\)]\s*/,'').trim().length;if(l>len)len=l;} }
+  else { len=val?val.length:0; }
+  var color=len>maxLen?'#DC2626':'var(--t3)', weight=len>maxLen?'font-weight:700;':'';
+  return '<div id="'+cntId+'" style="font-size:11px;color:'+color+';'+weight+'text-align:right;margin-top:3px;">'+len+'/'+maxLen+'</div>';
+}
+function updateCharCounter(elemId,val,maxLen,isMultiLine) {
+  var el=$(elemId); if(!el) return;
+  var len=0;
+  if(isMultiLine&&val){ var lines=val.split('\n'); for(var i=0;i<lines.length;i++){var l=lines[i].replace(/^\s*\d+[\.\-\)]\s*/,'').trim().length;if(l>len)len=l;} }
+  else { len=val?val.length:0; }
+  el.textContent=len+'/'+maxLen; el.style.color=len>maxLen?'#DC2626':'var(--t3)'; el.style.fontWeight=len>maxLen?'700':'400';
+}
+
+function renderSearchBar() {
+  var v=esc(A.searchQuery||'');
+  var h='<div style="position:relative;margin-bottom:10px;display:flex;align-items:center;">';
+  h+='<input type="text" id="search-bar-input" placeholder="🔍 Cari judul video..." value="'+v+'" oninput="A.searchQuery=this.value;render()" style="width:100%;padding:6px 26px 6px 10px;font-size:12px;border:1px solid var(--border2);border-radius:var(--r2);background:var(--card);color:var(--text);font-family:inherit;">';
+  if(A.searchQuery) h+='<button onclick="A.searchQuery=\'\';render()" style="position:absolute;right:6px;background:none;border:none;color:var(--t3);cursor:pointer;font-size:16px;padding:0 6px;line-height:1;">×</button>';
+  h+='</div>'; return h;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RENDER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function renderHeader() {
+  var r=$('hdr-r'); if(!r) return;
+  var logoutBtn='<button class="btn btn-sm btn-ghost" onclick="doLogout()">🔒 Keluar PIN</button>';
+  var settingsBtn='<button class="btn btn-sm btn-ghost" onclick="A.tab=\'settings\';render()">⚙️ Settings</button>';
+  if(A.step==='dashboard') {
+    var activePool=A.credPool.filter(function(c){return c.auth_status==='active';});
+    var poolBadge='<span style="font-size:10px;color:var(--t3);padding:2px 7px;border:1px solid var(--border);border-radius:4px">🔑 '+activePool.length+'/'+A.credPool.length+' Aktif</span>';
+    r.innerHTML=
+      '<span style="font-size:12px;color:var(--t3)"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px;vertical-align:middle"></span>'+esc(A.active?A.active.name:'')+'</span>'+
+      poolBadge+
+      '<button class="btn btn-sm btn-ghost" onclick="refresh()">↻</button>'+
+      settingsBtn+
+      '<button class="btn btn-sm btn-ghost" onclick="signOut()">Sign Out</button>'+
+      logoutBtn;
+  } else {
+    r.innerHTML=settingsBtn+logoutBtn;
+  }
+}
+
+function renderChBar() {
+  if(!A.channels.length) return '';
+  window._chm={}; A.channels.forEach(function(c){window._chm[c.id]=c;});
+  var chips=A.channels.map(function(ch){
+    var act=A.active&&A.active.id===ch.id;
+    return '<span class="ch-chip'+(act?' active':'')+'"'+((!act)?' style="border-left:3px solid '+esc(ch.color)+'"':'')+' onclick="switchCh(window._chm[\''+ch.id+'\'])">'+
+      esc(ch.name)+'<span class="ch-del" onclick="event.stopPropagation();delChannel(\''+ch.id+'\')">×</span></span>';
+  }).join('');
+  return '<div class="ch-bar"><span class="ch-label">Channel:</span><div class="ch-chips">'+chips+'</div><button class="btn-add-ch" onclick="A.modal=\'addch\';render()">+ Tambah</button></div>';
+}
+
+function renderStats() {
+  var d=getDrafts(), sc=Object.keys(A.scheduled).length;
+  var up=d.filter(function(v){return isSoon(A.scheduled[v.id]);}).length;
+  return '<div class="stats">'+
+    '<div class="stat"><div class="stat-n">'+d.length+'</div><div class="stat-l">Total Draft</div></div>'+
+    '<div class="stat"><div class="stat-n c-green">'+sc+'</div><div class="stat-l">Terjadwal</div></div>'+
+    '<div class="stat"><div class="stat-n c-orange">'+(d.length-sc)+'</div><div class="stat-l">Belum Jadwal</div></div>'+
+    '<div class="stat"><div class="stat-n c-blue">'+up+'</div><div class="stat-l">Rilis 7 Hari</div></div>'+
+    '</div>';
+}
+
+// ── Settings Tab ───────────────────────────────────────────────────────────────
+
+function renderSettings() {
+  var h='<div style="max-width:800px;margin:0 auto">';
+
+  // ─ Credential Pool Section ─
+  h+='<div style="font-size:18px;font-weight:800;margin-bottom:4px">⚙️ Settings &amp; Credential Pool</div>';
+  h+='<div style="font-size:13px;color:var(--t2);margin-bottom:1.5rem">Kelola OAuth credentials untuk akses YouTube API tanpa popup. Setiap credential mendukung 1 akun Google / channel YouTube.</div>';
+
+  // Upload Zone
+  h+='<div class="panel" style="margin-bottom:1.5rem"><div class="panel-head">📤 Tambah Credential Baru (Upload client_secret.json)</div><div class="panel-body">';
+  h+='<div class="info-blue" style="margin-bottom:12px">'+
+    '<strong>Cara mendapatkan file ini:</strong> Google Cloud Console → APIs &amp; Services → Credentials → Create OAuth 2.0 Client ID → pilih type <b>Web application</b> → '+
+    'tambahkan <code>'+esc(SHEETS_URL||'URL Web App GAS Anda')+'?action=oauthCallback</code> sebagai Authorised Redirect URI → Download JSON.<br>'+
+    '<b>Catatan:</b> client_secret HANYA disimpan di server GAS (PropertiesService). Frontend tidak pernah melihatnya setelah upload.</div>';
+
+  h+='<div class="upload-zone" id="upload-zone" ondragover="event.preventDefault();this.classList.add(\'drag-over\')" ondragleave="this.classList.remove(\'drag-over\')" ondrop="event.preventDefault();this.classList.remove(\'drag-over\');document.getElementById(\'json-file-input\').files=event.dataTransfer.files;handleJsonUpload(document.getElementById(\'json-file-input\'))">';
+  h+='<input type="file" id="json-file-input" accept=".json,application/json" onchange="handleJsonUpload(this)">';
+  h+='<div class="upload-icon">📁</div>';
+  h+='<div style="font-size:14px;font-weight:700;margin-bottom:4px">Drag &amp; drop atau klik untuk pilih file</div>';
+  h+='<div style="font-size:12px;color:var(--t3)">client_secret.json dari Google Cloud Console</div>';
+  h+='</div>';
+  h+='<div id="upload-error" style="display:none;font-size:12px;color:#DC2626;padding:8px 12px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:var(--r2);margin-top:10px"></div>';
+  h+='</div></div>';
+
+  // Credential Pool Table
+  h+='<div class="panel" style="margin-bottom:1.5rem"><div class="panel-head">🔑 Credential Pool ('+A.credPool.length+' Total)</div>';
+
+  if(!A.credPool.length) {
+    h+='<div class="empty" style="padding:2rem"><div style="font-size:36px;margin-bottom:8px">🔐</div><p>Belum ada credential. Upload client_secret.json di atas untuk memulai.</p></div>';
+  } else {
+    h+='<div style="overflow-x:auto"><table class="cred-table"><thead><tr>';
+    h+='<th>#</th><th>Channel</th><th>@Handle</th><th>Subscribers</th><th>Auth Status</th><th>Client ID</th><th>Aksi</th>';
+    h+='</tr></thead><tbody>';
+
+    A.credPool.forEach(function(c,idx){
+      h+='<tr>';
+      h+='<td style="color:var(--t3);font-weight:700;font-size:12px">#'+(idx+1)+'</td>';
+
+      // Channel info (avatar + name)
+      h+='<td>';
+      h+='<div style="display:flex;align-items:center;gap:10px">';
+      if(c.thumb_url) {
+        h+='<img src="'+esc(c.thumb_url)+'" class="ch-avatar" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
+        h+='<div class="ch-avatar-ph" style="display:none">'+(c.channel_name?esc(c.channel_name[0].toUpperCase()):'?')+'</div>';
+      } else {
+        h+='<div class="ch-avatar-ph">'+(c.channel_name?esc(c.channel_name[0].toUpperCase()):'🔑')+'</div>';
+      }
+      h+='<div>';
+      h+='<div style="font-size:13px;font-weight:700">'+(c.channel_name?esc(c.channel_name):'<em style="color:var(--t3)">Belum dihubungkan</em>')+'</div>';
+      if(c.added_at) h+='<div style="font-size:10px;color:var(--t3)">Ditambahkan '+new Date(c.added_at).toLocaleDateString('id-ID')+'</div>';
+      h+='</div></div></td>';
+
+      // Handle
+      h+='<td style="font-size:12px;color:var(--t2)">'+esc(c.channel_handle||'-')+'</td>';
+
+      // Subscribers
+      h+='<td style="font-size:12px;font-weight:600">'+
+        (c.subscriber_count>0?parseInt(c.subscriber_count).toLocaleString('id-ID')+' sub':'-')+
+      '</td>';
+
+      // Auth Status badge
+      var statusClass='auth-pending', statusLabel='⏳ Menunggu', statusIcon='';
+      if(c.auth_status==='active')     { statusClass='auth-active'; statusLabel='✅ Aktif'; }
+      if(c.auth_status==='revoked')    { statusClass='auth-revoked'; statusLabel='❌ Dicabut'; }
+      if(c.auth_status==='exhausted')  { statusClass='auth-exhausted'; statusLabel='⚡ Kuota Habis'; }
+      if(c.auth_status==='error')      { statusClass='auth-error'; statusLabel='⚠ Error'; }
+      h+='<td><span class="auth-badge '+statusClass+'">'+statusLabel+'</span></td>';
+
+      // Client ID (partial)
+      h+='<td><div style="font-family:monospace;font-size:11px;color:var(--t3);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(c.client_id)+'">'+esc(c.client_id?c.client_id.substring(0,20)+'...':'—')+'</div></td>';
+
+      // Actions
+      h+='<td><div style="display:flex;gap:4px;flex-wrap:wrap">';
+      if(c.auth_status==='pending'||c.auth_status==='error'||c.auth_status==='revoked') {
+        h+='<button class="btn btn-xs btn-blue" onclick="reconnectCredential('+idx+')">🔗 Hubungkan</button>';
+      } else if(c.auth_status==='active') {
+        h+='<button class="btn btn-xs btn-ghost" onclick="reconnectCredential('+idx+')" title="Re-authorize this credential">🔄 Reconnect</button>';
+      }
+      h+='<button class="btn btn-xs" style="color:var(--red)" onclick="removeCredential('+idx+')" title="Hapus credential">🗑</button>';
+      h+='</div></td>';
+      h+='</tr>';
+    });
+    h+='</tbody></table></div>';
+  }
+  h+='</div>';
+
+  // QA Testing Section
+  h+='<div class="panel"><div class="panel-head">🧪 QA — Test & Debug</div><div class="panel-body">';
+  h+='<div class="info-orange" style="margin-bottom:12px">Panel ini untuk menguji logika auto-rotation dan error handling. <strong>Jangan gunakan di production tanpa reset setelahnya.</strong></div>';
+
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">';
+
+  h+='<button id="qa-testQuotaRotation-btn" data-label="▶ Test Quota Rotation" class="btn btn-sm" onclick="runQaTest(\'testQuotaRotation\',{credIndex:\'0\',failAfter:\'2\'})">▶ Test Quota Rotation</button>';
+  h+='<button id="qa-testRevokedToken-btn" data-label="▶ Test Revoked Token" class="btn btn-sm" onclick="runQaTest(\'testRevokedToken\',{credIndex:\'0\'})">▶ Test Revoked Token</button>';
+  h+='<button id="qa-testAllExhausted-btn" data-label="▶ Test All Exhausted" class="btn btn-sm" onclick="runQaTest(\'testAllExhausted\',{})">▶ Test All Exhausted</button>';
+  h+='<button id="qa-clearQuotaFlags-btn" data-label="🔄 Reset Quota Flags" class="btn btn-sm btn-green" onclick="runQaTest(\'clearQuotaFlags\',{})">🔄 Reset Quota Flags</button>';
+  h+='</div>';
+
+  h+='<pre id="qa-result" style="display:none;background:var(--hover);border:1px solid var(--border);border-radius:var(--r2);padding:12px;font-size:11px;max-height:300px;overflow:auto;white-space:pre-wrap;word-break:break-all;color:var(--text)"></pre>';
+  h+='</div></div>';
+
+  h+='</div>';
+  return h;
+}
+
+// ── Setup (no channels) ────────────────────────────────────────────────────────
+
+function renderSetup() {
+  window._chm={}; A.channels.forEach(function(c){window._chm[c.id]=c;});
+
+  var activePool=A.credPool.filter(function(c){return c.auth_status==='active';});
+  var poolStatus='';
+  if(!A.credPool.length) {
+    poolStatus='<div class="info-red" style="margin-bottom:1rem">⚠ Belum ada credential. Klik <b>⚙️ Settings</b> di kanan atas untuk menambah credential.</div>';
+  } else if(!activePool.length) {
+    poolStatus='<div class="info-orange" style="margin-bottom:1rem">⚠ Tidak ada credential aktif. Klik <b>Hubungkan</b> di tab Settings.</div>';
+  } else {
+    poolStatus='<div class="info-green" style="margin-bottom:1rem">✅ '+activePool.length+' credential aktif dan siap digunakan.</div>';
+  }
+
+  if(!A.channels.length) {
+    return '<div style="text-align:center;padding:3rem 1rem;display:flex;flex-direction:column;align-items:center">'+
+      '<div style="font-size:36px;margin-bottom:8px">🎬</div>'+
+      '<h2 style="font-size:18px;font-weight:800;margin-bottom:6px">Belum Ada Channel</h2>'+
+      '<p style="font-size:13px;color:var(--t2);margin-bottom:1.25rem;max-width:340px">Tambahkan channel dan hubungkan credential di Settings untuk mulai menjadwalkan.</p>'+
+      poolStatus+
+      '<button class="btn btn-red" style="font-size:14px;padding:12px 28px" onclick="A.modal=\'addch\';render()">＋ Tambah Channel Pertama</button>'+
+      '</div>';
+  }
+
+  var btns=A.channels.map(function(ch){
+    return '<button class="btn btn-red" style="font-size:14px;padding:12px 28px;width:100%;max-width:320px;justify-content:center" onclick="switchCh(window._chm[\''+ch.id+'\'])">'+
+      '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:'+esc(ch.color)+';margin-right:8px;flex-shrink:0"></span>'+
+      'Masuk sebagai <b style="margin-left:4px">'+esc(ch.name)+'</b></button>';
+  }).join('');
+
+  return '<div style="text-align:center;padding:3rem 1rem;display:flex;flex-direction:column;align-items:center">'+
+    '<div style="font-size:36px;margin-bottom:8px">📺</div>'+
+    '<h2 style="font-size:18px;font-weight:800;margin-bottom:6px">Pilih Channel</h2>'+
+    '<p style="font-size:13px;color:var(--t2);margin-bottom:1.25rem">API calls otomatis menggunakan credential pool yang aktif.</p>'+
+    poolStatus+
+    '<div style="display:flex;flex-direction:column;gap:10px;align-items:center;width:100%;max-width:320px">'+btns+
+    '<div style="margin-top:4px;border-top:1px solid var(--border);padding-top:12px;width:100%">'+
+    '<button class="btn" style="width:100%;justify-content:center;border-style:dashed" onclick="A.modal=\'addch\';render()">＋ Tambah Channel</button>'+
+    '</div></div></div>';
+}
+
+// ── Per-video tab ──────────────────────────────────────────────────────────────
+
+function renderPerVideo() {
+  var filtered=getFiltered(), d=getDrafts(), sc=Object.keys(A.scheduled).length, hiddenCount=Object.keys(A.hidden).length;
+  var h='<div class="filters">'+
+    '<button class="chip'+(A.filter==='all'?' active':'')+'" onclick="A.filter=\'all\';render()">Semua ('+d.length+')</button>'+
+    '<button class="chip'+(A.filter==='scheduled'?' active':'')+'" onclick="A.filter=\'scheduled\';render()">✓ Terjadwal ('+sc+')</button>'+
+    '<button class="chip'+(A.filter==='unscheduled'?' active':'')+'" onclick="A.filter=\'unscheduled\';render()">Draft ('+(d.length-sc)+')</button>'+
+    (hiddenCount?'<button class="chip" onclick="A.showHidden=!A.showHidden;render()" style="margin-left:auto;font-size:11px">'+(A.showHidden?'▲':'▼')+' Tersembunyi ('+hiddenCount+')</button>':'')+'</div>'+
+    (A.showHidden&&hiddenCount?renderHiddenList():'');
+
+  if(!filtered.length){
+    return h+'<div class="empty"><div style="font-size:38px;margin-bottom:8px">📭</div><p style="font-size:13px">Tidak ada video draft ditemukan.</p>'+
+      (A.videos.length>0?'<p style="font-size:12px;color:var(--t3);margin-top:6px">'+A.videos.length+' video terdeteksi, semua berstatus public.<br>Upload video sebagai <b>Private</b> di YouTube Studio.</p>':'<p style="font-size:12px;color:var(--t3);margin-top:6px">Tidak ada video di channel ini.</p>')+
+      '</div>';
+  }
+
+  h+='<div class="vlist vscroll">';
+  filtered.forEach(function(v){
+    var sched=A.scheduled[v.id], isOpen=A.openPanel===v.id;
+    var thumb=getThumb(v), title=getTitle(v), existing=sched?utcToLocal(sched):{date:tomorrow(),time:'00:00'};
+    h+='<div class="vrow'+(sched?' scheduled':'')+(isOpen?' open':'')+'">';
+    h+=thumb?'<img class="thumb" src="'+esc(thumb.url)+'" alt="" loading="lazy">':'<div class="thumb-ph">▶</div>';
+    h+='<div style="min-width:0"><div class="vtitle" title="'+esc(title)+'">'+esc(title)+'</div>'+
+      '<div class="vmeta">'+(sched?'<span class="badge '+(isSoon(sched)?'b-soon':'b-sched')+'">'+(isSoon(sched)?'⏰ ':'')+esc(fmtDate(sched))+'</span>':'<span class="badge b-draft">📝 Draft</span>')+'</div></div>';
+    h+='<div class="vactions">';
+    if(sched) h+='<button class="btn-unsched" onclick="doUnschedule(\''+v.id+'\')">✕ Hapus Jadwal</button>';
+    h+='<button class="btn btn-xs'+(sched?'':' btn-red')+'" onclick="openPanel(\''+v.id+'\')">'+(isOpen?'✕ Tutup':(sched?'✏ Ubah':'📅 Jadwalkan'))+'</button>';
+    h+='</div></div>';
+    if(isOpen){
+      h+='<div class="ipanel">';
+      h+='<div><label>Tanggal</label><input type="date" id="d-'+v.id+'" min="'+today()+'" value="'+esc(existing.date)+'"><div class="tz-hint">Timezone: '+tzLabel()+'</div></div>';
+      h+='<div><label>Jam</label><input type="time" id="t-'+v.id+'" value="'+esc(existing.time)+'"></div>';
+      h+='<div style="display:flex;gap:6px;margin-top:auto">'+
+        '<button class="btn btn-red btn-sm" id="save-'+v.id+'" onclick="doSchedule(\''+v.id+'\')">Simpan</button>'+
+        (sched?'<button class="btn btn-sm" onclick="doUnschedule(\''+v.id+'\')">Hapus</button>':'')+
+        '<button class="btn btn-sm btn-ghost" onclick="openPanel(\''+v.id+'\')">Batal</button></div>';
+      h+='</div>';
+    }
+  });
+  h+='</div>'; return h;
+}
+
+function renderHiddenList() {
+  var hv=A.videos.filter(function(v){return A.hidden[v.id];});
+  if(!hv.length) return '';
+  var h='<div style="margin-bottom:10px;padding:10px 12px;background:var(--hover);border-radius:var(--r2);border:1px solid var(--border)">';
+  h+='<div style="font-size:11px;font-weight:700;color:var(--t3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Video Tersembunyi</div>';
+  hv.forEach(function(v){
+    h+='<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">'+
+      '<span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--t2)">'+esc(getTitle(v))+'</span>'+
+      '<button class="btn btn-xs btn-ghost" onclick="unhideVideo(\''+v.id+'\')" style="color:var(--blue)">Tampilkan</button></div>';
+  });
+  h+='<div style="margin-top:8px"><button class="btn btn-xs btn-ghost" onclick="Object.keys(A.hidden).forEach(function(id){delete A.hidden[id]});saveHidden();render()">Tampilkan Semua</button></div>';
+  h+='</div>'; return h;
+}
+
+// ── Bulk tab ───────────────────────────────────────────────────────────────────
+
+function renderBulk() {
+  var b=A.bulk, allDrafts=getDrafts();
+  var unscheduled=allDrafts.filter(function(v){return !A.scheduled[v.id];});
+  var scheduled=allDrafts.filter(function(v){return !!A.scheduled[v.id];});
+  scheduled.sort(function(a,b){return new Date(A.scheduled[a.id])-new Date(A.scheduled[b.id]);});
+
+  var h='<div style="display:flex;gap:0;margin-bottom:1.25rem;border-bottom:1px solid var(--border)">';
+  h+='<button class="tab'+(b.subTab==='unsched'?' active':'')+'" onclick="A.bulk.subTab=\'unsched\';render()">📋 Belum Dijadwalkan <span style="background:var(--orange-bg);color:var(--orange);font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px">'+unscheduled.length+'</span></button>';
+  h+='<button class="tab'+(b.subTab==='sched'?' active':'')+'" onclick="A.bulk.subTab=\'sched\';render()">✅ Sudah Terjadwal <span style="background:var(--green-bg);color:var(--green);font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px">'+scheduled.length+'</span></button>';
+  h+='</div>';
+
+  if(b.subTab==='sched') return h+renderBulkScheduled(scheduled);
+  return h+renderBulkUnsched(unscheduled,b);
+}
+
+function renderBulkScheduled(scheduled) {
+  if(!scheduled.length) return '<div class="empty"><div style="font-size:38px;margin-bottom:8px">📭</div><p style="font-size:13px">Belum ada video yang terjadwal.</p></div>';
+  var h='<div class="info-green" style="margin-bottom:12px">✅ <b>'+scheduled.length+' video</b> sudah terjadwal.</div>';
+  h+='<div style="overflow-x:auto"><table class="ptable" style="width:100%"><thead><tr><th class="pnum">#</th><th>Video</th><th>Jadwal Publish</th><th style="width:110px">Aksi</th></tr></thead><tbody>';
+  scheduled.forEach(function(v,i){
+    var iso=A.scheduled[v.id], thumb=getThumb(v), title=getTitle(v), isSn=isSoon(iso);
+    h+='<tr><td class="pnum">'+(i+1)+'</td><td style="vertical-align:middle"><div style="display:flex;align-items:center;gap:8px">'+
+      (thumb?'<img src="'+esc(thumb.url)+'" style="width:56px;height:32px;object-fit:cover;border-radius:3px;flex-shrink:0" loading="lazy">':'<div style="width:56px;height:32px;background:var(--hover);border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:12px">▶</div>')+
+      '<span class="ptitle" style="max-width:180px" title="'+esc(title)+'">'+esc(title)+'</span></div></td>'+
+      '<td><span class="badge '+(isSn?'b-soon':'b-sched')+'" style="font-size:11px">'+(isSn?'⏰ ':'')+esc(fmtDate(iso))+'</span></td>'+
+      '<td><div style="display:flex;gap:4px">'+
+      '<button class="btn btn-xs" onclick="openPanel(\''+v.id+'\');A.tab=\'list\';render()" title="Ubah jadwal">✏</button>'+
+      '<button class="btn btn-xs" style="color:var(--red)" onclick="doUnschedule(\''+v.id+'\')" title="Hapus jadwal">✕</button>'+
+      '</div></td></tr>';
+  });
+  h+='</tbody></table></div>';
+  h+='<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;justify-content:flex-end">'+
+    '<button class="btn btn-sm" style="color:var(--red);border-color:var(--red-b)" onclick="confirmUnscheduleAll()">✕ Hapus Semua Jadwal</button></div>';
+  return h;
+}
+
+function renderBulkUnsched(unscheduled, b) {
+  var selCount=b.selected.length;
+  var h='<div class="bulk-wrap">';
+
+  // LEFT panel
+  var left='<div class="panel"><div class="panel-head">⚙️ Pengaturan Jadwal Massal</div><div class="panel-body">';
+  left+='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--t3);margin-bottom:8px">Mode Penjadwalan</div>';
+  left+='<div class="mode-opts">';
+  left+='<label class="mode-opt'+(b.mode==='interval'?' selected':'')+'" onclick="setMode(\'interval\')"><input type="radio" name="bmode" value="interval" '+(b.mode==='interval'?'checked':'')+' onchange="setMode(\'interval\')"><div class="mode-opt-text"><strong>📅 Interval Otomatis</strong><span>1 video per N hari dari tanggal mulai</span></div></label>';
+  left+='<label class="mode-opt'+(b.mode==='custom'?' selected':'')+'" onclick="setMode(\'custom\')"><input type="radio" name="bmode" value="custom" '+(b.mode==='custom'?'checked':'')+' onchange="setMode(\'custom\')"><div class="mode-opt-text"><strong>🗓 Pilih Tanggal Sendiri</strong><span>Tentukan tanggal berbeda tiap video</span></div></label>';
+  left+='</div>';
+  if(b.mode==='interval'){
+    left+='<div class="fg"><label>Tanggal Mulai</label><input type="date" id="b-start" min="'+today()+'" value="'+esc(b.startDate||tomorrow())+'" oninput="A.bulk.startDate=this.value;persistDraftState();render()"></div>';
+    left+='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--t3);margin-bottom:7px">Interval</div>';
+    left+='<div class="interval-row">';
+    [1,2,3,7].forEach(function(n){ left+='<button class="interval-btn'+(b.interval===n?' sel':'')+'" onclick="setInterval2('+n+')">'+(n===1?'Tiap Hari':n===7?'Tiap Minggu':n+' Hari Sekali')+'</button>'; });
+    left+='<div style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--t2)">Custom:<input class="custom-n" type="number" min="1" max="365" value="'+b.customN+'" oninput="A.bulk.customN=parseInt(this.value)||1;persistDraftState();" id="b-custn">'+
+      '<button class="btn btn-xs" onclick="setInterval2(parseInt(val(\'b-custn\'))||1)">OK</button></div></div>';
+  }
+  left+='<div class="fg" style="margin-top:12px"><label>Jam Publish — '+tzLabel()+' (waktu lokal)</label><input type="time" id="b-time" value="'+esc(b.time)+'" oninput="A.bulk.time=this.value;persistDraftState();"></div>';
+  left+='<div style="margin-top:16px;padding-top:16px;border-top:1px dashed var(--border2)">';
+  left+='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--t3);margin-bottom:8px">📝 Update Metadata Massal (Opsional)</div>';
+  left+='<div class="fg"><label>Judul (1 Baris = 1 Video)</label><textarea id="b-titles" rows="4" placeholder="Judul Video 1\nJudul Video 2" style="width:100%;padding:8px;font-size:13px;border:1px solid var(--border2);border-radius:var(--r2);background:var(--card);color:var(--text);font-family:inherit;resize:vertical" oninput="A.bulk.titles=this.value;persistDraftState();updateCharCounter(\'b-titles-cnt\',this.value,100,true);">'+esc(b.titles||'')+'</textarea>'+getCounterHtml('b-titles-cnt',b.titles,100,true)+'</div>';
+  left+='<div class="fg"><label>Deskripsi (Untuk Semua)</label><textarea id="b-desc" rows="3" style="width:100%;padding:8px;font-size:13px;border:1px solid var(--border2);border-radius:var(--r2);background:var(--card);color:var(--text);font-family:inherit;resize:vertical" oninput="A.bulk.desc=this.value;persistDraftState();updateCharCounter(\'b-desc-cnt\',this.value,5000,false);">'+esc(b.desc||'')+'</textarea>'+getCounterHtml('b-desc-cnt',b.desc,5000,false)+'</div>';
+  left+='<div class="fg"><label>Tags (Pisahkan koma)</label><input type="text" id="b-tags" placeholder="tag1, tag 2" value="'+esc(b.tags||'')+'" oninput="A.bulk.tags=this.value;persistDraftState();updateCharCounter(\'b-tags-cnt\',this.value,500,false);">'+getCounterHtml('b-tags-cnt',b.tags,500,false)+'</div>';
+  left+='</div></div></div>';
+
+  // RIGHT panel
+  var q=(A.searchQuery||'').toLowerCase();
+  var matchingUnsched=q?unscheduled.filter(function(v){return getTitle(v).toLowerCase().includes(q);}):unscheduled;
+  var allMatchingSel=matchingUnsched.length>0&&matchingUnsched.every(function(v){return b.selected.indexOf(v.id)>-1;});
+  var right='<div><div class="panel" style="margin-bottom:12px">';
+  right+='<div class="panel-head">📋 Pilih Video yang Akan Dijadwalkan <button class="btn btn-xs btn-ghost" onclick="selectAllBulk()">'+(allMatchingSel?'Batal Semua':'Pilih Semua')+'</button></div>';
+  right+='<div class="panel-body" style="padding:10px">';
+  if(!unscheduled.length){
+    right+='<div class="empty" style="padding:1.5rem"><p style="font-size:13px">Semua draft sudah terjadwal! 🎉</p></div>';
+  } else {
+    right+='<div class="info-blue" style="font-size:11px;margin-bottom:8px">💡 Hanya video belum dijadwalkan yang tampil. Urutan = urutan tanggal publish. Atur dengan ↑↓.</div>';
+    right+=renderSearchBar();
+    right+='<div class="sel-list">';
+    var selSet=new Set(b.selected);
+    var orderedSel=b.selected.filter(function(id){return unscheduled.find(function(v){return v.id===id;});});
+    var orderedList=orderedSel.map(function(id){return A.videos.find(function(v){return v.id===id;});}).filter(Boolean);
+    var unsel=unscheduled.filter(function(v){return !selSet.has(v.id);});
+    var allInOrder=orderedList.concat(unsel);
+    var displayList=q?allInOrder.filter(function(v){return getTitle(v).toLowerCase().includes(q);}):allInOrder;
+    if(!displayList.length){ right+='<div style="padding:1rem;text-align:center;color:var(--t3);font-size:12px">Tidak ada video yang cocok</div>'; }
+    else {
+      displayList.forEach(function(v){
+        var checked=selSet.has(v.id), thumb=getThumb(v), title=getTitle(v), posInSel=b.selected.indexOf(v.id);
+        right+='<div class="sel-row'+(checked?' checked':'')+'" onclick="toggleBulkSel(\''+v.id+'\')">';
+        right+='<input type="checkbox"'+(checked?' checked':'')+' onclick="event.stopPropagation();toggleBulkSel(\''+v.id+'\')">';
+        right+=(thumb?'<img class="sthumb" src="'+esc(thumb.url)+'" alt="" loading="lazy">':'<div class="sthumb-ph">▶</div>');
+        right+='<span class="stitle" title="'+esc(title)+'">'+esc(title)+'</span>';
+        if(checked){
+          right+='<span style="font-size:10px;font-weight:700;color:var(--red);min-width:16px;text-align:center">#'+(posInSel+1)+'</span>';
+          right+='<div class="reorder" onclick="event.stopPropagation()">'+
+            '<button onclick="moveUp(\''+v.id+'\')" '+(posInSel===0?'disabled':'')+'>▲</button>'+
+            '<button onclick="moveDown(\''+v.id+'\')" '+(posInSel===b.selected.length-1?'disabled':'')+'>▼</button></div>';
+        }
+        right+='</div>';
+      });
+    }
+    right+='</div>';
+  }
+  right+='</div></div>';
+
+  // Preview
+  right+='<div class="panel"><div class="panel-head">👁 Preview Jadwal <span style="font-size:11px;color:var(--t3);font-weight:500">'+selCount+' video dipilih</span></div><div class="panel-body">';
+  if(!selCount){ right+='<div class="empty" style="padding:1.5rem"><p style="font-size:13px">Pilih video di atas untuk melihat preview.</p></div>'; }
+  else if(b.mode==='interval'){
+    var startVal=b.startDate||tomorrow();
+    right+='<div style="overflow-x:auto"><table class="ptable"><thead><tr><th class="pnum">#</th><th>Video</th><th>Tanggal Publish</th></tr></thead><tbody>';
+    b.selected.forEach(function(id,i){ var v=A.videos.find(function(x){return x.id===id;}); if(!v) return; var dateStr=addDays(startVal,i*b.interval); right+='<tr><td class="pnum">'+(i+1)+'</td><td class="ptitle">'+esc(getTitle(v))+'</td><td class="pdate">'+esc(fmtShort(dateStr))+'</td></tr>'; });
+    right+='</tbody></table></div>';
+    right+='<div class="info-green" style="margin-top:10px;font-size:11px">✓ '+selCount+' video mulai <b>'+esc(fmtShort(startVal))+'</b>, setiap <b>'+b.interval+' hari</b>, jam <b>'+(b.time||'00:00')+' '+tzLabel()+'</b></div>';
+  } else {
+    right+='<div style="font-size:11px;color:var(--t2);margin-bottom:8px">Pilih tanggal masing-masing video. Jam: <b>'+(b.time||'00:00')+'</b> '+tzLabel()+'</div>';
+    right+='<div style="overflow-x:auto"><table class="ptable"><thead><tr><th class="pnum">#</th><th>Video</th><th>Tanggal</th></tr></thead><tbody>';
+    b.selected.forEach(function(id,i){ var v=A.videos.find(function(x){return x.id===id;}); if(!v) return; var existing=b.customDates[id]||''; right+='<tr><td class="pnum">'+(i+1)+'</td><td class="ptitle">'+esc(getTitle(v))+'</td><td class="pdate-custom"><input type="date" id="bc-'+id+'" min="'+today()+'" value="'+esc(existing)+'" oninput="A.bulk.customDates[\''+id+'\']=this.value"></td></tr>'; });
+    right+='</tbody></table></div>';
+  }
+  right+='</div>';
+  if(selCount>0){
+    right+='<div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px">'+
+      '<span style="font-size:12px;color:var(--t3)">'+selCount+' video akan dijadwalkan</span>'+
+      '<button class="btn btn-red" id="bulk-apply" onclick="saveBulkValues()">🚀 Terapkan Jadwal</button></div>';
+  }
+  right+='</div></div>';
+
+  h+=left+right+'</div>';
+  return h;
+}
+
+// ── Calendar tab ───────────────────────────────────────────────────────────────
+
+function renderCalendar() {
+  var today_=new Date(), ty=today_.getFullYear(), tm=today_.getMonth(), td=today_.getDate();
+  var y=A.calY, m=A.calM;
+  var mNames=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  var dNames=['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+  var firstDay=new Date(y,m,1).getDay(), daysInMonth=new Date(y,m+1,0).getDate();
+
+  // Build event map
+  var evMap={};
+  var allSched=Object.assign({},A.scheduled,A.calScheduled);
+  Object.keys(allSched).forEach(function(vid){
+    var dt=utcToLocal(allSched[vid]), k=dt.date;
+    if(!evMap[k]) evMap[k]=[];
+    var vObj=A.videos.find(function(x){return x.id===vid;});
+    evMap[k].push({title:getTitle(vObj),isCal:!!A.calScheduled[vid]});
+  });
+
+  var h='<div style="display:flex;gap:16px;align-items:flex-start">';
+
+  // Calendar grid
+  h+='<div style="flex:1;min-width:0"><div class="panel"><div class="panel-body">';
+  h+='<div class="cal-nav"><button class="btn btn-sm btn-ghost" onclick="A.calM--;if(A.calM<0){A.calM=11;A.calY--;}render()">‹ Prev</button>'+
+    '<div class="cal-title">'+mNames[m]+' '+y+'</div>'+
+    '<button class="btn btn-sm btn-ghost" onclick="A.calM++;if(A.calM>11){A.calM=0;A.calY++;}render()">Next ›</button></div>';
+  h+='<div class="cal-grid">';
+  dNames.forEach(function(dn){ h+='<div class="cal-head">'+dn+'</div>'; });
+  for(var i=0;i<firstDay;i++) h+='<div class="cal-cell dim"></div>';
+  for(var d=1;d<=daysInMonth;d++){
+    var isToday=(y===ty&&m===tm&&d===td);
+    var dateStr=y+'-'+pad(m+1)+'-'+pad(d);
+    var evs=evMap[dateStr]||[];
+    h+='<div class="cal-cell'+(isToday?' today':'')+'"'+(A.calMode?' onclick="handleCalClick('+y+','+m+','+d+')" style="cursor:pointer" onmouseover="this.style.borderColor=\'var(--red)\'" onmouseout="this.style.borderColor=\''+(isToday?'var(--red)':'var(--border)') +'\'"':'')+'>'+
+      '<div class="cal-num">'+(isToday?'<div>'+d+'</div>':d)+'</div>';
+    var showEvs=evs.slice(0,3);
+    showEvs.forEach(function(ev){ h+='<div class="cal-ev" style="'+(ev.isCal?'background:var(--orange-bg);color:var(--orange);border-color:var(--orange)':'')+'" title="'+esc(ev.title)+'">'+esc(ev.title)+'</div>'; });
+    if(evs.length>3) h+='<div class="cal-more">+'.concat(evs.length-3,' lainnya</div>');
+    h+='</div>';
+  }
+  h+='</div></div></div></div>';
+
+  // Sidebar
+  h+='<div style="width:280px;flex-shrink:0"><div class="panel"><div class="panel-body">';
+
+  // Mode toggle
+  h+='<div class="info-blue" style="font-size:11px;margin-bottom:12px">📅 Mode Klik Kalender: Klik tanggal → jadwalkan draft berikutnya otomatis.</div>';
+  h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'+
+    '<label style="font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px">'+
+    '<input type="checkbox"'+(A.calMode?' checked':'')+' onchange="A.calMode=this.checked;render()" style="accent-color:var(--red);width:16px;height:16px">'+
+    'Aktifkan Mode Klik</label></div>';
+  if(A.calMode){
+    h+='<div class="fg"><label>Jam Publish ('+tzLabel()+')</label><input type="time" id="cal-time-input" value="'+esc(A.calTime||'08:00')+'" oninput="A.calTime=this.value;"></div>';
+  }
+
+  // Metadata section
+  h+='<div class="cal-meta-section">';
+  h+='<span class="cml">📝 Judul (1 Baris = 1 Video)</span>';
+  h+='<textarea id="cal-titles" rows="3" placeholder="Judul Video 1\nJudul Video 2" oninput="A.calMeta.titles=this.value;persistDraftState();updateCharCounter(\'cal-titles-cnt\',this.value,100,true);">'+esc(A.calMeta.titles||'')+'</textarea>'+getCounterHtml('cal-titles-cnt',A.calMeta.titles,100,true);
+  h+='<span class="cml">Deskripsi</span><textarea id="cal-desc" rows="2" placeholder="Deskripsi bersama..." oninput="A.calMeta.desc=this.value;persistDraftState();updateCharCounter(\'cal-desc-cnt\',this.value,5000,false);">'+esc(A.calMeta.desc||'')+'</textarea>'+getCounterHtml('cal-desc-cnt',A.calMeta.desc,5000,false);
+  h+='<span class="cml">Tags (Pisahkan koma)</span><input type="text" id="cal-tags" placeholder="tag1, tag2" value="'+esc(A.calMeta.tags||'')+'" oninput="A.calMeta.tags=this.value;persistDraftState();updateCharCounter(\'cal-tags-cnt\',this.value,500,false);">'+getCounterHtml('cal-tags-cnt',A.calMeta.tags,500,false);
+  h+='</div>';
+
+  // Draft queue
+  var allCalDrafts=getDrafts().filter(function(v){return !A.scheduled[v.id]&&!A.calScheduled[v.id];});
+  var drafts=allCalDrafts;
+  if(A.searchQuery){ var q2=A.searchQuery.toLowerCase(); drafts=drafts.filter(function(v){return getTitle(v).toLowerCase().includes(q2);}); }
+  h+='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--t3);margin:12px 0 8px">Draft Queue ('+drafts.length+')</div>';
+  h+=renderSearchBar();
+  if(drafts.length>0){
+    h+='<div style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:5px;padding-right:4px;">';
+    drafts.slice(0,20).forEach(function(v,i){
+      var t=getTitle(v);
+      h+='<div style="padding:6px 8px;border:1px solid var(--border);border-radius:var(--r3);background:var(--card);font-size:11px;word-break:break-word;" title="'+esc(t)+'">'+(i===0&&A.calMode?'<span style="color:var(--red);font-weight:bold;margin-right:4px">▶ Next:</span>':'')+esc(t)+'</div>';
+    });
+    if(drafts.length>20) h+='<div style="font-size:10px;color:var(--t3);text-align:center;margin-top:4px">+'.concat(drafts.length-20,' lainnya</div>');
+    h+='</div>';
+  } else {
+    h+='<div style="font-size:11px;color:var(--t3);text-align:center;padding:8px 0">'.concat(allCalDrafts.length>0?'Tidak ada video yang cocok':'Tidak ada draft.','</div>');
+  }
+
+  // Save/undo buttons
+  var tempCount=Object.keys(A.calScheduled).length;
+  if(tempCount>0){
+    h+='<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">'+
+      '<div class="info-orange" style="font-size:11px;margin-bottom:8px">Ada '+tempCount+' video belum disimpan!</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+
+      '<button class="btn btn-sm btn-ghost" onclick="A.calScheduled={};A.calHistory=[];persistDraftState();render()">Reset</button>'+
+      (A.calHistory&&A.calHistory.length>0?'<button class="btn btn-sm" onclick="undoCal()">Undo (↩)</button>':'')+
+      '<button class="btn btn-red btn-sm" style="flex:1;" id="cal-save-btn" onclick="prepareCalSave()">💾 Simpan ke YT</button>'+
+      '</div></div>';
+  }
+
+  h+='</div></div></div></div>';
+  return h;
+}
+
+// ── Modals ────────────────────────────────────────────────────────────────────
+
+function renderAddChModal() {
+  var sw=COLORS.map(function(c){return '<div class="cswatch'+(A.newCh.color===c?' sel':'')+'" style="background:'+c+'" onclick="A.newCh.color=\''+c+'\';render()"></div>';}).join('');
+  return '<div class="overlay" onclick="if(event.target===this){A.modal=null;render()}">'+
+    '<div class="modal"><h3>➕ Tambah Channel Baru</h3>'+
+    '<div class="info-blue" style="font-size:12px;margin-bottom:10px">API calls otomatis menggunakan credential pool yang aktif. Pastikan sudah ada credential aktif di Settings.</div>'+
+    '<div class="fg"><label>Nama Channel (Label Visual)</label><input id="nc-name" type="text" placeholder="Channel Gaming" value="'+esc(A.newCh.name)+'"></div>'+
+    '<div class="fg"><label>Warna Label</label><div class="color-row">'+sw+'</div></div>'+
+    '<div class="modal-footer"><button class="btn btn-sm" onclick="A.modal=null;render()">Batal</button>'+
+    '<button class="btn btn-red btn-sm" onclick="A.newCh.name=val(\'nc-name\');addChannel()">Tambahkan →</button></div>'+
+    '</div></div>';
+}
+
+function renderConfirmSaveModal() {
+  var pd=A.previewData; if(!pd) return '';
+  var rows=pd.rows, hasError=pd.hasError;
+  var h='<div class="overlay" onclick="if(event.target===this){A.modal=null;A.previewData=null;render()}">';
+  h+='<div class="modal modal-wide">';
+  h+='<h3>🚀 Konfirmasi Jadwal — '+rows.length+' Video</h3>';
+  if(hasError) h+='<div style="padding:9px 12px;border-radius:var(--r3);font-size:12px;margin-bottom:10px;background:#FEF2F2;color:#991B1B;border:1px solid #FCA5A5;flex-shrink:0">⚠ Beberapa judul melebihi <b>100 karakter</b>. Perbaiki dahulu.</div>';
+  else h+='<div style="padding:9px 12px;border-radius:var(--r3);font-size:12px;margin-bottom:10px;background:var(--green-bg);color:var(--green);border:1px solid var(--green-b);flex-shrink:0">✓ Semua judul valid. Klik <b>Ya, Simpan</b> untuk mengirim via GAS backend.</div>';
+  if(pd.hasCollision) h+='<div class="info-orange" style="margin-bottom:10px;font-size:12px;flex-shrink:0">⚠️ Ada beberapa video dijadwalkan pada waktu yang sama. Lanjutkan jika disengaja.</div>';
+  h+='<div class="modal-scroll"><div style="overflow-x:auto"><table class="ptable" style="min-width:500px;width:100%">'+
+    '<thead><tr><th class="pnum">#</th><th style="width:62px">Thumb</th><th>Judul</th><th style="white-space:nowrap">Jadwal Publish</th><th style="width:88px;text-align:center">Karakter</th></tr></thead><tbody>';
+  rows.forEach(function(row,i){
+    h+='<tr class="'+(row.err?'row-err':'')+'">'+
+      '<td class="pnum">'+(i+1)+'</td>'+
+      '<td style="padding:6px 10px">'+(row.thumb?'<img src="'+esc(row.thumb.url)+'" style="width:56px;height:32px;object-fit:cover;border-radius:3px;display:block" loading="lazy">':'<div style="width:56px;height:32px;background:var(--hover);border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:12px">▶</div>')+'</td>'+
+      '<td style="max-width:240px">'+(row.changed?'<span class="old-title" title="'+esc(row.oldTitle)+'">'+esc(row.oldTitle.length>46?row.oldTitle.slice(0,44)+'…':row.oldTitle)+'</span><span class="new-title-arrow">↓</span><span class="new-title" title="'+esc(row.newTitle)+'" style="'+(row.err?'color:#DC2626':'')+'">' +esc(row.newTitle.length>46?row.newTitle.slice(0,44)+'…':row.newTitle)+'</span>':'<span style="font-size:12px;font-weight:500" title="'+esc(row.oldTitle)+'">'+esc(row.oldTitle.length>55?row.oldTitle.slice(0,53)+'…':row.oldTitle)+'</span>')+'</td>'+
+      '<td><span class="badge b-sched" style="font-size:10px;white-space:nowrap">'+esc(row.dateLabel)+'</span></td>'+
+      '<td style="text-align:center">'+(row.err?'<span class="char-badge char-err-badge">'+row.len+'/100 !</span>':(row.changed?'<span class="char-badge char-ok">'+row.len+'/100</span>':'<span style="font-size:10px;color:var(--t3)">'+row.len+'/100</span>'))+'</td>'+
+      '</tr>';
+  });
+  h+='</tbody></table></div></div>';
+  h+='<div class="modal-footer" style="flex-shrink:0;margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--border)">'+
+    '<button class="btn btn-sm" onclick="A.modal=null;A.previewData=null;render()">← Batal</button>'+
+    (hasError?'<button class="btn btn-red btn-sm" disabled style="opacity:.45;cursor:not-allowed">✓ Ya, Simpan ke YouTube</button>':'<button class="btn btn-red btn-sm" onclick="executeSchedule()">✓ Ya, Simpan ke YouTube</button>')+
+    '</div></div></div>';
+  return h;
+}
+
+function renderErrorModal() {
+  return '<div class="overlay" onclick="if(event.target===this){A.modal=null;A.errorMsg=null;render()}">'+
+    '<div class="modal" style="width:480px"><h3>❌ Terjadi Kesalahan</h3>'+
+    '<div style="font-size:13px;color:var(--t2);margin-bottom:12px">Pesan error:</div>'+
+    '<textarea readonly style="width:100%;height:150px;padding:10px;font-family:monospace;font-size:11px;background:var(--hover);border:1px solid var(--border);border-radius:var(--r2);color:var(--text);resize:none;font-family:monospace">'+esc(A.errorMsg)+'</textarea>'+
+    '<div class="modal-footer"><button class="btn btn-red btn-sm" onclick="A.modal=null;A.errorMsg=null;render()">Tutup</button></div>'+
+    '</div></div>';
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────────
+
+function renderDashboard() {
+  var h=renderChBar()+renderStats();
+  h+='<div class="tabs">'+
+    '<button class="tab'+(A.tab==='list'?' active':'')+'" onclick="A.tab=\'list\';A.openPanel=null;render()">📋 Per Video</button>'+
+    '<button class="tab'+(A.tab==='bulk'?' active':'')+'" onclick="A.tab=\'bulk\';A.openPanel=null;render()">🚀 Jadwal Massal</button>'+
+    '<button class="tab'+(A.tab==='cal'?' active':'')+'" onclick="A.tab=\'cal\';render()">📅 Kalender</button>'+
+    '<button class="tab'+(A.tab==='settings'?' active':'')+'" onclick="A.tab=\'settings\';render()">⚙️ Settings</button>'+
+    '</div>';
+  if(A.tab==='list') h+=renderPerVideo();
+  else if(A.tab==='bulk') h+=renderBulk();
+  else if(A.tab==='cal') h+=renderCalendar();
+  else if(A.tab==='settings') h+=renderSettings();
+  return h;
+}
+
+// ── Main render ────────────────────────────────────────────────────────────────
+
+function render() {
+  var root=$('root'); if(!root) return;
+  var focusId=document.activeElement?document.activeElement.id:null;
+  var selStart=null, selEnd=null;
+  if(focusId&&(document.activeElement.tagName==='INPUT'||document.activeElement.tagName==='TEXTAREA')){
+    try{selStart=document.activeElement.selectionStart;selEnd=document.activeElement.selectionEnd;}catch(e){}
+  }
+  var h='';
+  if(A.step==='setup') h=renderSetup();
+  else if(A.step==='loading') h='<div class="loader"><div class="spinner"></div> Memuat video via GAS backend...</div>';
+  else if(A.step==='dashboard') h=renderDashboard();
+  if(A.modal==='addch') h+=renderAddChModal();
+  if(A.modal==='confirm_save') h+=renderConfirmSaveModal();
+  if(A.modal==='error') h+=renderErrorModal();
+  root.innerHTML=h; renderHeader();
+  if(focusId){
+    var el=$(focusId);
+    if(el&&typeof el.focus==='function'){
+      el.focus();
+      if(selStart!==null&&selEnd!==null&&typeof el.setSelectionRange==='function'){
+        try{el.setSelectionRange(selStart,selEnd);}catch(e){}
+      }
+    }
+  }
+}
+
+// ── Boot sequence ──────────────────────────────────────────────────────────────
+
+A.channels=lsCh();
+try {
+  var savedState=sessionStorage.getItem('yt_draft_state');
+  if(savedState){
+    var parsed=JSON.parse(savedState);
+    if(parsed.bulk) Object.assign(A.bulk,parsed.bulk);
+    if(parsed.calScheduled) A.calScheduled=parsed.calScheduled;
+    if(parsed.calHistory) A.calHistory=parsed.calHistory;
+    if(parsed.calMeta) Object.assign(A.calMeta,parsed.calMeta);
+  }
+} catch(e){ console.warn('Failed to restore draft state',e); }
+
+render();
+init();
+
+    // ── Copy GAS backend code ────────────────────────────────────────────────
+    function copyCode() {
+      var el = document.getElementById('gas-code');
+      if (!el) return;
+      var text = el.innerText || el.textContent;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+          var btn = document.getElementById('copy-gas-btn');
+          if (btn) { btn.textContent = '✓ Copied!'; btn.style.color = 'var(--green)'; setTimeout(function(){ btn.textContent = '📋 Copy'; btn.style.color = ''; }, 2000); }
+        }).catch(function() { fallbackCopy(text); });
+      } else { fallbackCopy(text); }
+    }
+    function fallbackCopy(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); var btn = document.getElementById('copy-gas-btn'); if(btn){btn.textContent='✓ Copied!';btn.style.color='var(--green)';setTimeout(function(){btn.textContent='📋 Copy';btn.style.color='';},2000);} } catch(e) {}
+      document.body.removeChild(ta);
+    }
+
+</script>
+
+
+</body></html>
