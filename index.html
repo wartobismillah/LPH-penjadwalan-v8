@@ -25,8 +25,8 @@ WHAT'S NEW IN v8:
   <script>
     // ═══════════════════════════════════════════════════════════════════════
     // CONFIGURATION — Set these after deploying Code.gs as a Web App
-    const SHEETS_URL = "https://script.google.com/macros/s/AKfycbzH0LKYORzLraKNWxHjf-o2_47bhGvIGsu1hlXl9xiiaL_iVKPMPE1089vsc5CUgQYh/exec";       // Paste your GAS Web App URL here
-    const TEAM_PIN   = "siappakai";       // Team PIN for session protection
+    const SHEETS_URL = "";       // Paste your GAS Web App URL here
+    const TEAM_PIN   = "";       // Team PIN for session protection
     const DRAFT_WINDOW_DAYS = 90;
     // ═══════════════════════════════════════════════════════════════════════
   </script>
@@ -967,7 +967,7 @@ function getScriptUrl() { return ScriptApp.getService().getUrl(); }
         <div class="help">Semua anggota tim pakai PIN yang sama untuk masuk</div>
       </div>
       <div id="s-err"></div>
-      <button class="btn-full" id="s-btn" onclick="doSetup()" disabled="">Mengecek koneksi...</button>
+      <button class="btn-full" id="s-btn" onclick="doSetup()">Cek Koneksi &amp; Generate File →</button>
     </div>
     <div id="setup-dl-view" style="display:none">
       <div class="dl-box">
@@ -1158,8 +1158,9 @@ async function doSetup() {
     var r=await fetch(url+'?action=loadData&t='+Date.now());
     var d=await r.json();
     if(d.success===false) throw new Error(d.error);
+    if(btn){btn.disabled=false;btn.textContent='Cek Koneksi & Generate File →';}
     var src=document.documentElement.outerHTML;
-    generatedHtml=src.replace('const SHEETS_URL = "";','const SHEETS_URL = "'+url+'";').replace('const TEAM_PIN   = "";','const TEAM_PIN   = "'+pin+'";');
+    generatedHtml=src.replace('const SHEETS_URL = "";','const SHEETS_URL = "";').replace('const TEAM_PIN   = "";','const TEAM_PIN   = "";');
     if($('setup-step-view')) $('setup-step-view').style.display='none';
     if($('setup-dl-view')) $('setup-dl-view').style.display='block';
   } catch(e) {
@@ -1183,14 +1184,14 @@ function addChannel() {
 
 function delChannel(id) {
   A.channels=A.channels.filter(function(c){return c.id!==id;}); saveCh();
-  if(A.active&&A.active.id===id){ A.videos=[]; A.scheduled={}; A.step='setup'; A.active=null; A.activeChannelId=''; }
+  if(A.active&&A.active.id===id){ A.videos=[]; A.scheduled={}; A.step='setup'; A.tab='list'; A.active=null; A.activeChannelId=''; A.openPanel=null; }
   render(); toast('Channel dihapus','inf');
 }
 
 function switchCh(ch) {
-  if(A.active && A.active.id===ch.id && A.step==='dashboard') return;
+  if(A.active && A.active.id===ch.id && A.step==='dashboard' && A.tab !== 'settings') return;
   A.active=ch; A.activeChannelId=''; A.videos=[]; A.scheduled=loadSched(ch); A.hidden=loadHidden(ch);
-  A.step='loading'; render(); fetchVideos();
+  A.step='loading'; A.tab='list'; A.openPanel=null; render(); fetchVideos();
 }
 
 // ── Fetch videos via GAS backend ───────────────────────────────────────────────
@@ -1590,7 +1591,7 @@ function executeSchedule() {
 
 // ── Misc actions ───────────────────────────────────────────────────────────────
 
-function signOut() { A.videos=[]; A.scheduled={}; A.hidden={}; A.step='setup'; A.active=null; A.activeChannelId=''; render(); toast('Signed out','inf'); }
+function signOut() { A.videos=[]; A.scheduled={}; A.hidden={}; A.step='setup'; A.tab='list'; A.active=null; A.activeChannelId=''; A.openPanel=null; render(); toast('Signed out','inf'); }
 async function refresh() { A.step='loading'; render(); await fetchVideos(); }
 async function confirmUnscheduleAll() {
   var sched=getDrafts().filter(function(v){return !!A.scheduled[v.id];});
@@ -1711,7 +1712,11 @@ function renderHeader() {
       '<button class="btn btn-sm btn-ghost" onclick="signOut()">Sign Out</button>'+
       logoutBtn;
   } else {
-    r.innerHTML=settingsBtn+logoutBtn;
+    if(A.tab==='settings') {
+      r.innerHTML='<button class="btn btn-sm btn-ghost" onclick="A.tab=\'list\';render()">← Pilih Channel</button>'+logoutBtn;
+    } else {
+      r.innerHTML=settingsBtn+logoutBtn;
+    }
   }
 }
 
@@ -2224,14 +2229,20 @@ function renderErrorModal() {
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
 
-function renderDashboard() {
-  var h=renderChBar()+renderStats();
-  h+='<div class="tabs">'+
+// ── Shared tab navigation ────────────────────────────────────────────────────
+
+function renderTabNav() {
+  return '<div class="tabs">'+
     '<button class="tab'+(A.tab==='list'?' active':'')+'" onclick="A.tab=\'list\';A.openPanel=null;render()">📋 Per Video</button>'+
     '<button class="tab'+(A.tab==='bulk'?' active':'')+'" onclick="A.tab=\'bulk\';A.openPanel=null;render()">🚀 Jadwal Massal</button>'+
     '<button class="tab'+(A.tab==='cal'?' active':'')+'" onclick="A.tab=\'cal\';render()">📅 Kalender</button>'+
     '<button class="tab'+(A.tab==='settings'?' active':'')+'" onclick="A.tab=\'settings\';render()">⚙️ Settings</button>'+
     '</div>';
+}
+
+function renderDashboard() {
+  var h=renderChBar()+renderStats();
+  h+=renderTabNav();
   if(A.tab==='list') h+=renderPerVideo();
   else if(A.tab==='bulk') h+=renderBulk();
   else if(A.tab==='cal') h+=renderCalendar();
@@ -2249,9 +2260,21 @@ function render() {
     try{selStart=document.activeElement.selectionStart;selEnd=document.activeElement.selectionEnd;}catch(e){}
   }
   var h='';
-  if(A.step==='setup') h=renderSetup();
-  else if(A.step==='loading') h='<div class="loader"><div class="spinner"></div> Memuat video via GAS backend...</div>';
-  else if(A.step==='dashboard') h=renderDashboard();
+  if(A.step==='loading') {
+    h='<div class="loader"><div class="spinner"></div> Memuat video via GAS backend...</div>';
+  } else if(A.tab==='settings') {
+    // Settings accessible from setup step AND dashboard step
+    if(A.step==='dashboard') {
+      h=renderChBar()+renderStats()+renderTabNav();
+    } else {
+      h='<div style="margin-bottom:1.25rem"><button class="btn btn-sm" onclick="A.tab=\'list\';render()">← Kembali ke Pilih Channel</button></div>';
+    }
+    h+=renderSettings();
+  } else if(A.step==='setup') {
+    h=renderSetup();
+  } else if(A.step==='dashboard') {
+    h=renderDashboard();
+  }
   if(A.modal==='addch') h+=renderAddChModal();
   if(A.modal==='confirm_save') h+=renderConfirmSaveModal();
   if(A.modal==='error') h+=renderErrorModal();
