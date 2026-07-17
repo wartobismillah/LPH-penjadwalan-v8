@@ -25,7 +25,7 @@ WHAT'S NEW IN v8:
   <script>
     // ═══════════════════════════════════════════════════════════════════════
     // CONFIGURATION — Set these after deploying Code.gs as a Web App
-    const SHEETS_URL = "https://script.google.com/macros/s/AKfycbzH0LKYORzLraKNWxHjf-o2_47bhGvIGsu1hlXl9xiiaL_iVKPMPE1089vsc5CUgQYh/exec";       // Paste your GAS Web App URL here
+    const SHEETS_URL = "https://script.google.com/macros/s/AKfycbxJPZMiwDv-gnyyBNk9_0-ZU7AhUyeoXcsUn5y09vb0FW3K7b5seukoWUbp8OzQS9CI/exec";       // Paste your GAS Web App URL here
     const TEAM_PIN   = "siappakai";       // Team PIN for session protection
     const DRAFT_WINDOW_DAYS = 90;
     // ═══════════════════════════════════════════════════════════════════════
@@ -477,7 +477,7 @@ function handleGetAuthUrl(e) {
   if(isNaN(idx)||idx&lt;0||idx&gt;=pool.length) return jsonErr('Invalid credIndex','INVALID_CRED_INDEX');
   var cred = pool[idx];
   if(!cred.client_id||!cred.client_secret) return jsonErr('Missing client_id or client_secret','INVALID_CREDENTIAL');
-  var cbUrl = getScriptUrl()+'?action=oauthCallback&amp;state='+idx;
+  var cbUrl = getScriptUrl()+'?action=oauthCallback';
   return jsonOk({success:true,authUrl:buildAuthUrl(cred.client_id,cbUrl,idx),credIndex:idx});
 }
 
@@ -501,7 +501,7 @@ function handleOAuthCallback(e) {
   if(isNaN(idx)||idx&lt;0||idx&gt;=pool.length) return HtmlService.createHtmlOutput(cbHtml('Index Tidak Valid','Credential index '+state+' tidak valid.',false));
 
   var cred=pool[idx];
-  var cbUrl=getScriptUrl()+'?action=oauthCallback&amp;state='+idx;
+  var cbUrl=getScriptUrl()+'?action=oauthCallback';
   try {
     var resp=UrlFetchApp.fetch(OAUTH_TOKEN_URL,{
       method:'post',contentType:'application/x-www-form-urlencoded',
@@ -802,7 +802,7 @@ function handleSaveCredential(b) {
   pool.push(nc);
   saveCredPool(pool);
   var credIndex=pool.length-1;
-  var cbUrl=getScriptUrl()+'?action=oauthCallback&amp;state='+credIndex;
+  var cbUrl=getScriptUrl()+'?action=oauthCallback';
   return jsonOk({success:true,credIndex:credIndex,authUrl:buildAuthUrl(cid,cbUrl,credIndex)});
 }
 
