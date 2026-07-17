@@ -25,8 +25,8 @@ WHAT'S NEW IN v8:
   <script>
     // ═══════════════════════════════════════════════════════════════════════
     // CONFIGURATION — Set these after deploying Code.gs as a Web App
-    const SHEETS_URL = "";       // Paste your GAS Web App URL here
-    const TEAM_PIN   = "";       // Team PIN for session protection
+    const SHEETS_URL = "https://script.google.com/macros/s/AKfycbzH0LKYORzLraKNWxHjf-o2_47bhGvIGsu1hlXl9xiiaL_iVKPMPE1089vsc5CUgQYh/exec";       // Paste your GAS Web App URL here
+    const TEAM_PIN   = "siappakai";       // Team PIN for session protection
     const DRAFT_WINDOW_DAYS = 90;
     // ═══════════════════════════════════════════════════════════════════════
   </script>
@@ -1160,7 +1160,7 @@ async function doSetup() {
     if(d.success===false) throw new Error(d.error);
     if(btn){btn.disabled=false;btn.textContent='Cek Koneksi & Generate File →';}
     var src=document.documentElement.outerHTML;
-    generatedHtml=src.replace('const SHEETS_URL = "";','const SHEETS_URL = "";').replace('const TEAM_PIN   = "";','const TEAM_PIN   = "";');
+    generatedHtml=src.replace('const SHEETS_URL = "";','const SHEETS_URL = "'+url+'";').replace('const TEAM_PIN   = "";','const TEAM_PIN   = "'+pin+'";');
     if($('setup-step-view')) $('setup-step-view').style.display='none';
     if($('setup-dl-view')) $('setup-dl-view').style.display='block';
   } catch(e) {
